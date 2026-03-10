@@ -923,7 +923,7 @@ function buildInternalDebriefUrl(property, ai, note) {
   return `https://calendar.google.com/calendar/r/eventedit?text=${subject}&details=${body}`;
 }
 
-// --- MEET TRANSCRIPT → AI NOTITIES --------------------------------------------
+// --- JUSTCALL TRANSCRIPT → AI NOTITIES (koppeling later) -----------------------
 function MeetTranscriptNotetaker({ onFilled }) {
   const [transcript, setTranscript] = useState("");
   const [loading, setLoading] = useState(false);
@@ -957,7 +957,7 @@ function MeetTranscriptNotetaker({ onFilled }) {
       <textarea
         style={{ ...S.notitieVeld, marginBottom: 8 }}
         rows={4}
-        placeholder="Plak hier het transcript van je Google Meet-opname (of kopieer live-tekst)..."
+        placeholder="Plak hier het transcript van je JustCall-belgesprek (of ander beltranscript)..."
         value={transcript}
         onChange={e => { setTranscript(e.target.value); setError(null); }}
         disabled={loading}
@@ -2225,11 +2225,11 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
           })()}
         </div>
 
-        {/* MEET-TRANSCRIPT → AI NOTITIES */}
+        {/* JUSTCALL-TRANSCRIPT → AI NOTITIES (koppeling later) */}
         <div style={{ ...S.sectie, paddingBottom: 16, animation: "fadeUp 0.4s ease 0.48s both" }}>
-          <SectieTitel>🎥 Google Meet – AI notities</SectieTitel>
+          <SectieTitel>📞 JustCall – AI notities</SectieTitel>
           <p style={{ fontSize: 11, color: T.textLight, marginBottom: 8 }}>
-            Plak het transcript van je Meet-opname (of andere gespreksnotities). AI vult daarna automatisch uitkomst, contactnaam en belnotities in.
+            Plak het transcript van je JustCall-belgesprek (of ander beltranscript). Koppeling met JustCall volgt later. AI vult daarna automatisch uitkomst, contactnaam en belnotities in.
           </p>
           <MeetTranscriptNotetaker
             onFilled={(result) => {
@@ -2501,7 +2501,7 @@ function ConfigView({ cfg, onSave, onTerug }) {
           <div style={S.cfgSectieKop}>
             <span style={{ fontSize: 22 }}>📅</span>
             <div>
-              <div style={S.cfgSectieNaam}>Google Meet</div>
+              <div style={S.cfgSectieNaam}>JustCall</div>
               <div style={S.cfgSectieDesc}>Bij "Interesse" verschijnt een knop - Google Agenda opent met onderwerp en pandinfo al ingevuld. Geen configuratie nodig.</div>
             </div>
             <span style={S.cfgActiefBadge}>v Actief</span>
