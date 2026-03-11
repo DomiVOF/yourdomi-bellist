@@ -1416,7 +1416,6 @@ export default function App() {
   const warmCount = properties.filter(p => enriched[p.id]?.score === "WARM").length;
   const portfolioCount = Object.values(phoneGroups).filter(g => g.length > 1).length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
-  const enrichProgress = properties.length > 0 ? Math.round((verrijktCount / properties.length) * 100) : 0;
   const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
 
   if (view === "config") {
@@ -1522,10 +1521,7 @@ export default function App() {
             <Stat label="Portfolio" val={portfolioCount} />
             <div style={S.enrichProgBlok}>
               <div style={S.enrichProgLabel}>
-                AI {verrijktDb != null ? verrijktDb : verrijktCount}/{verrijktDb != null ? (dbTotalCount || totalCount) : properties.length}
-              </div>
-              <div style={S.enrichProgBar}>
-                <div style={{ ...S.enrichProgFill, width: enrichProgress + "%" }} />
+                AI-scanned: {verrijktDb != null ? verrijktDb : verrijktCount}
               </div>
             </div>
           </div>
@@ -2798,8 +2794,6 @@ const S = {
   headerStat: { textAlign: "center" },
   enrichProgBlok: { display: "flex", flexDirection: "column", gap: 3, minWidth: 70 },
   enrichProgLabel: { fontSize: 9, color: T.textLight, letterSpacing: 1, textAlign: "right" },
-  enrichProgBar: { height: 4, background: T.border, borderRadius: 2, overflow: "hidden" },
-  enrichProgFill: { height: "100%", background: T.orange, borderRadius: 2, transition: "width 0.5s ease" },
   headerStatVal: { fontSize: 18, fontWeight: 700 },
   headerStatLabel: { fontSize: 10, color: T.textLight, letterSpacing: 0.5 },
   // Filter bar
