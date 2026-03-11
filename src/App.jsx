@@ -2263,43 +2263,37 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             )}
 
-            {/* INTEL GRID */}
+            {/* SAMENGEVATTE VERKOOPINTELLIGENTIE */}
             <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.3s both" }}>
               <SectieTitel>🎯 Verkoopintelligentie</SectieTitel>
-              <div style={S.intelKolom}>
-                <IntelKaart titel="Pitch hoek" tekst={ai.pitchhoek} />
-                <IntelKaart titel="Waarom deze score" tekst={ai.scoreReden} />
-                {ai.eigenaarProfiel && <IntelKaart titel="Eigenaarsprofiel" tekst={ai.eigenaarProfiel} />}
-                {ai.locatieHighlights?.length > 0 && (
-                  <div style={S.intelKaartBase}>
-                    <div style={S.intelKaartTitel}>Locatie highlights</div>
-                    <div style={S.tagRij}>{ai.locatieHighlights.map((h, i) => <span key={i} style={S.tagGroen}>{h}</span>)}</div>
+              <div style={S.intelKaartBase}>
+                <div style={S.intelKaartTitel}>Samenvatting</div>
+                <p style={{ fontSize: 13, color: T.textMid, lineHeight: 1.6, margin: 0 }}>
+                  {[ai.scoreReden, ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
+                </p>
+                {(ai.locatieHighlights?.length || 0) > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ai.locatieHighlights.map((h, i) => (
+                      <span key={i} style={S.tagGroen}>{h}</span>
+                    ))}
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* ZWAKTES */}
-            {ai.zwaktes?.length > 0 && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.35s both" }}>
-                <SectieTitel>! Pand tekortkomingen <span style={{ color: T.textLight, fontWeight: 400, fontSize: 11 }}>(gebruik als haak)</span></SectieTitel>
-                <div style={S.tagRij}>{ai.zwaktes.map((z, i) => <span key={i} style={S.tagOranje}>{z}</span>)}</div>
-              </div>
-            )}
-
-            {/* PUNTEN UIT REVIEWS — voor verkoopgesprek (Airbnb/Booking) */}
-            {ai.reviewThemes?.length > 0 && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.35s both" }}>
-                <SectieTitel>💬 Terugkerende punten uit reviews <span style={{ color: T.textLight, fontWeight: 400, fontSize: 11 }}>(gebruik in gesprek)</span></SectieTitel>
-                <div style={S.intelKaartBase}>
-                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
+                {(ai.zwaktes?.length || 0) > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ai.zwaktes.map((z, i) => (
+                      <span key={i} style={S.tagOranje}>{z}</span>
+                    ))}
+                  </div>
+                )}
+                {(ai.reviewThemes?.length || 0) > 0 && (
+                  <ul style={{ margin: 10, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
                     {ai.reviewThemes.map((theme, i) => (
                       <li key={i}>{theme}</li>
                     ))}
                   </ul>
-                </div>
+                )}
               </div>
-            )}
+            </div>
 
           </div>
         )}
