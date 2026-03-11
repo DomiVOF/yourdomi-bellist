@@ -989,9 +989,9 @@ function MeetTranscriptNotetaker({ onFilled }) {
 
 // --- SCORE CONFIG -------------------------------------------------------------
 const SCORES = {
-  HEET:  { kleur: T.orange,     pale: T.orangePale,  border: "#E07B4A", emoji: "🔥" },
-  WARM:  { kleur: "#E8A838",    pale: "#FDF5E0",     border: "#E8A838", emoji: "W" },
-  KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: "K" },
+  HEET:  { kleur: T.orange,     pale: T.orangePale,  border: "#E07B4A", emoji: "🔥", label: "HEET" },
+  WARM:  { kleur: "#E8A838",    pale: "#FDF5E0",     border: "#E8A838", emoji: null, label: "WARM" },
+  KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: null, label: "KOUD" },
 };
 
 const CONTRACT_INFO = {
@@ -1404,6 +1404,7 @@ export default function App() {
       <DossierView
         property={selected}
         ai={enriched[selected.id]}
+        platformScanData={platformScan[selected.id]}
         enriching={enrichingIds.has(selected.id)}
         outcome={outcomes[selected.id] || null}
         note={notes[selected.id] || ""}
@@ -1777,7 +1778,7 @@ export default function App() {
                 addPhone(prop.phone); addPhone(prop.phone2); addPhone(prop["contact-phone"]);
                 addPhone(prop["telefoon"]); addPhone(prop["phone1"]);
                 if (Array.isArray(prop.phones)) prop.phones.forEach(addPhone);
-                const firstPhotoUrl = (fullAi?.airbnb?.fotoUrls?.[0] || fullAi?.booking?.fotoUrls?.[0] || fullAi?.directWebsite?.fotoUrls?.[0] || fullAi?.alleFotos?.[0]);
+                const firstPhotoUrl = (fullAi?.airbnb?.fotoUrls?.[0] || fullAi?.booking?.fotoUrls?.[0] || fullAi?.directWebsite?.fotoUrls?.[0] || fullAi?.alleFotos?.[0] || platformScan[prop.id]?.fotoUrls?.[0]);
                 const showThumb = firstPhotoUrl?.startsWith("http") && !cardThumbErrors[prop.id];
 
                 return (<>
@@ -1791,44 +1792,47 @@ export default function App() {
               )}
 
               <div style={S.kaartBody}>
-                {/* Header: name + address + meta */}
+                {/* Header: name + score badge */}
                 <div style={S.kaartTop}>
                   <div style={S.kaartNaamBlok}>
                     <div style={S.kaartNaam}>{prop.name}</div>
-                    {(street || city || fullAddress) && (
-                      <div style={{ fontSize: 11, color: T.textMid, marginTop: 4, display: "flex", alignItems: "center", gap: 3, overflow: "hidden" }}>
-                        <span style={{ flexShrink: 0 }}>📍</span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {[street, postalCode, city].filter(Boolean).join(", ") || fullAddress}
-                        </span>
+                    {/* Stack: address, date, type, amount – aligned under each other */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
+                      {(street || city || fullAddress) && (
+                        <div style={{ fontSize: 11, color: T.textMid, display: "flex", alignItems: "center", gap: 3, overflow: "hidden", minHeight: 18 }}>
+                          <span style={{ flexShrink: 0 }}>📍</span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {[street, postalCode, city].filter(Boolean).join(", ") || fullAddress}
+                          </span>
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
+                        <span style={{ flexShrink: 0 }}>🗓</span>
+                        <span>{prop.onlineSince ? new Date(prop.onlineSince).toLocaleDateString("nl-BE", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
                       </div>
-                    )}
-                    <div style={{ fontSize: 11, color: T.textLight, marginTop: 4, display: "flex", flexWrap: "wrap", gap: "4px 8px" }}>
-                      {province && <span>{province}</span>}
-                      {prop.toeristischeRegio && <span style={{ fontWeight: 500 }}>{prop.toeristischeRegio}</span>}
-                      {sleep > 0 && <span>🛏 {sleep}</span>}
-                      {units > 1 && <span>🏠 {units}x</span>}
-                      {prop.onlineSince && <span>· 🗓 {new Date(prop.onlineSince).toLocaleDateString("nl-BE", { day: "numeric", month: "short", year: "numeric" })}</span>}
+                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
+                        <span style={{ flexShrink: 0 }}>🏠</span>
+                        <span>{units > 1 ? `${units} units` : "1 unit"}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
+                        <span style={{ flexShrink: 0 }}>🛏</span>
+                        <span>{sleep > 0 ? `${sleep} slaapplaatsen` : "—"}</span>
+                      </div>
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                    {sc && <span style={{ ...S.scoreBadge, background: sc.pale, color: sc.kleur, border: `1px solid ${sc.border}` }}>{sc.emoji} {fullAi.score}</span>}
+                    {sc && <span style={{ ...S.scoreBadge, background: sc.pale, color: sc.kleur, border: `1px solid ${sc.border}` }}>{sc.emoji ? `${sc.emoji} ` : ""}{sc.label || fullAi.score}</span>}
                     {enrichingIds.has(prop.id) && <span style={S.enrichingDot} />}
                     {isAgency && <span style={S.agentuurPill} title={fullAi.agentuurSignalen}>Makelaar/agentuur</span>}
                     {poorWebsite && <span style={S.poorSitePill} title="Website slecht gebouwd – kans voor yourdomi">Slechte site</span>}
                   </div>
                 </div>
 
-                {/* Tags: status, portfolio, outcome, contract */}
+                {/* Tags: status, portfolio, outcome (no per-card beheer suggestion) */}
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                   {prop.status && <span style={S.statusTag}>{prop.status}</span>}
                   {heeftPortfolio && <span style={S.portfolioTag}>🏘 {portfolioAantal} panden</span>}
                   {uitkomst && uitkomst !== "none" && <span style={{ ...S.uitkomstBadge, ...uitkomstStijl(uitkomst) }}>{uitkomstLabel(uitkomst)}</span>}
-                  {fullAi?.contractadvies && (
-                    <span style={{ ...S.contractTag, background: CONTRACT_INFO[fullAi.contractadvies]?.color + "20", color: CONTRACT_INFO[fullAi.contractadvies]?.color, border: `1px solid ${CONTRACT_INFO[fullAi.contractadvies]?.color}40` }}>
-                      {CONTRACT_INFO[fullAi.contractadvies]?.pct} {CONTRACT_INFO[fullAi.contractadvies]?.label}
-                    </span>
-                  )}
                 </div>
 
                 {/* Contact: phone(s), email, website */}
@@ -1875,14 +1879,19 @@ export default function App() {
                   })()}
                 </div>
 
-                {/* Platform pills: Airbnb, Booking (incl. when website is Airbnb/Booking URL) */}
-                {(ai?.airbnb?.gevonden || ai?.booking?.gevonden || (fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length)) && (
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 8, borderTop: `1px solid ${T.borderLight}` }}>
-                    {ai?.airbnb?.gevonden && <span style={S.platformPillAirbnb}>Airbnb</span>}
-                    {ai?.booking?.gevonden && <span style={S.platformPillBooking}>Booking</span>}
-                    {(fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length) ? <span style={S.fotoPill}>📷</span> : null}
+                {/* Platform pills (left) + bed count bottom right */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, paddingTop: 8, borderTop: `1px solid ${T.borderLight}` }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {(ai?.airbnb?.gevonden || ai?.booking?.gevonden || (fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length)) && (
+                      <>
+                        {ai?.airbnb?.gevonden && <span style={S.platformPillAirbnb}>Airbnb</span>}
+                        {ai?.booking?.gevonden && <span style={S.platformPillBooking}>Booking</span>}
+                        {(fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length) ? <span style={S.fotoPill}>📷</span> : null}
+                      </>
+                    )}
                   </div>
-                )}
+                  {sleep > 0 && <span style={{ fontSize: 11, color: T.textLight }}>🛏 {sleep}</span>}
+                </div>
               </div>
               </>);
             })()}
@@ -1906,7 +1915,7 @@ export default function App() {
 }
 
 // --- DOSSIER VIEW -------------------------------------------------------------
-function DossierView({ property, ai, enriching, outcome, note, phoneGroups, properties, onNote, onOutcome, onVerberg, onAfgewezen, onTerug, currentIdx, total, onVolgende, onVorige, onSelectPand, mondayActief, mondayStatus, mondaySyncing, mondayCfg, onOpenConfig, onPushMonday, mondayFoutMsg, onSaveContactNaam, contactNaam }) {
+function DossierView({ property, ai, platformScanData, enriching, outcome, note, phoneGroups, properties, onNote, onOutcome, onVerberg, onAfgewezen, onTerug, currentIdx, total, onVolgende, onVorige, onSelectPand, mondayActief, mondayStatus, mondaySyncing, mondayCfg, onOpenConfig, onPushMonday, mondayFoutMsg, onSaveContactNaam, contactNaam }) {
   const [activeImg, setActiveImg] = useState(0);
   const [imgErrors, setImgErrors] = useState({});
   const noteRef = useRef(null);
@@ -1917,6 +1926,7 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
     ...(ai?.booking?.fotoUrls || []),
     ...(ai?.directWebsite?.fotoUrls || []),
     ...(ai?.alleFotos || []),
+    ...(platformScanData?.fotoUrls || []),
   ];
   const seen = new Set();
   const images = rawImgs.filter((u, i) => {
@@ -1969,7 +1979,7 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
         )}
         {sc && !enriching && (
           <div style={{ ...S.heroBadge, background: sc.kleur }}>
-            {sc.emoji} {ai.score} LEAD
+            {sc.emoji ? `${sc.emoji} ` : ""}{sc.label || ai.score} LEAD
           </div>
         )}
       </div>
@@ -2055,6 +2065,16 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
               </div>
             )}
 
+            {/* WAAROM HEET/WARM/KOUD – in details van de listing */}
+            {ai.scoreReden && (
+              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.08s both" }}>
+                <SectieTitel>Waarom {ai.score === "HEET" ? "🔥 HEET" : ai.score === "WARM" ? "WARM" : "KOUD"}?</SectieTitel>
+                <div style={{ ...S.intelKaartBase, borderLeft: `4px solid ${SCORES[ai.score]?.border || T.border}` }}>
+                  <p style={S.intelKaartTekst}>{ai.scoreReden}</p>
+                </div>
+              </div>
+            )}
+
             {/* OPENINGSZIN */}
             <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.1s both" }}>
               <SectieTitel>📞 Openingszin</SectieTitel>
@@ -2079,7 +2099,7 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
               </div>
             )}
 
-            {/* CONTRACT ADVIES */}
+            {/* CONTRACT ADVIES (alleen aanbeveling; geen suggestie op de kaart) */}
             {ai.contractadvies && (
               <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.15s both" }}>
                 <SectieTitel>📝 Aanbevolen contract</SectieTitel>
@@ -2100,6 +2120,21 @@ function DossierView({ property, ai, enriching, outcome, note, phoneGroups, prop
                 {ai.contractUitleg && <p style={S.contractUitleg}>{ai.contractUitleg}</p>}
               </div>
             )}
+
+            {/* BEHEERFORMULES – CHEAT SHEET (referentie, geen per-pand suggestie) */}
+            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.15s both" }}>
+              <SectieTitel>📋 Beheerformules – overzicht</SectieTitel>
+              <div style={{ ...S.intelKaartBase, background: T.bgCard }}>
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
+                  {Object.entries(CONTRACT_INFO).map(([key, info]) => (
+                    <div key={key} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: "inherit" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: info.color, marginBottom: 4 }}>{info.pct} {info.label}</div>
+                      <div style={{ fontSize: 11, color: T.textMid }}>{info.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
 
             {/* ONLINE PLATFORMS */}
             <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.2s both" }}>
