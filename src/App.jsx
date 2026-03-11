@@ -43,6 +43,7 @@ async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "s
   if (filters.heeftTelefoon) params.set("heeftTelefoon", "1");
   if (filters.heeftEmail)   params.set("heeftEmail", "1");
   if (filters.heeftWebsite) params.set("heeftWebsite", "1");
+  if (filters.belstatus)    params.set("belstatus", filters.belstatus);
   if (filters.regio)        params.set("regio", filters.regio);
   if (filters.type)         params.set("type", filters.type);
   if (sorteer && sorteer !== "score") params.set("sorteer", sorteer);
@@ -1406,7 +1407,7 @@ export default function App() {
     if (filters.filterReden === "slechte_site" && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
     if (filters.filterReden === "slechte_reviews" && !enriched[p.id]?.slechteReviews) return false;
     if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
-    if (filters.belstatus === "interesse" && outcome !== "gebeld_interesse") return false;
+    if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
     return true;
   });
@@ -1712,7 +1713,7 @@ export default function App() {
               <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Belstatus</div>
               <div style={S.filterCheckRow}>
                 <FilterSelect
-                  label="Belstatus"
+                  label=""
                   value={filters.belstatus}
                   onChange={v => setFilters(f => ({ ...f, belstatus: v }))}
                   options={[
