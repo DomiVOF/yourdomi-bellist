@@ -1549,11 +1549,7 @@ export default function App() {
             <Stat label="🔥 Heet" val={heetCount} accent />
             <Stat label="Portfolio" val={portfolioCount} />
             <Stat label="Interesse" val={interesseCount} />
-            <div style={S.enrichProgBlok}>
-              <div style={S.enrichProgLabel}>
-                AI-scanned: {verrijktDb != null ? verrijktDb : verrijktCount}
-              </div>
-            </div>
+            <Stat label="AI-scanned" val={verrijktDb != null ? verrijktDb : verrijktCount} />
           </div>
         </div>
       </div>
