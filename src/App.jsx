@@ -2476,11 +2476,14 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
           <div style={S.actieBtns}>
             <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnAfwijzen, ...(outcome === "afgewezen" ? { background: T.red, color: "#fff", border: `1px solid ${T.red}` } : {}) }}
-              onClick={() => { onAfgewezen(); }}>
+            onClick={() => { onAfgewezen(); onTerug && onTerug(); }}>
               <span>x</span> Afwijzen
             </button>
             <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnCallback, ...(outcome === "callback" ? { background: T.orange, color: "#fff", border: `1px solid ${T.orange}` } : {}) }}
-              onClick={() => { onOutcome(outcome === "callback" ? null : "callback"); setTimeout(() => noteRef.current?.focus(), 100); }}>
+            onClick={() => {
+              onOutcome(outcome === "callback" ? null : "callback");
+              if (onTerug) onTerug();
+            }}>
               <span>(~)</span> Terugbellen
             </button>
             <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnGebeld, ...(outcome === "gebeld_interesse" ? { background: T.green, color: "#fff", border: `1px solid ${T.green}` } : {}) }}
