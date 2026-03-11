@@ -1121,12 +1121,8 @@ export default function App() {
     heeftWebsite: false,
     heeftTelefoon: false,
     heeftEmail: false,
-    heeftAirbnb: false,
-    heeftBooking: false,
-    heeftFoto: false,
     heeftAi: false,
     geenAgentuur: false,
-    filterReden: "", // "" | "slechte_site" | "slechte_reviews"
     belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
     regio: "",
     type: "",
@@ -1358,24 +1354,11 @@ export default function App() {
     return ai;
   };
 
-  // Extra filters (AI-enrichment + platform-scan based)
-  const hasPicture = (id, prop) => {
-    const ai = getCardAi(id, prop);
-    const scan = platformScan[id];
-    const en = enriched[id];
-    const urls = en?.airbnb?.fotoUrls || en?.booking?.fotoUrls || en?.directWebsite?.fotoUrls || en?.alleFotos || scan?.fotoUrls;
-    return Array.isArray(urls) && urls.length > 0 && urls.some(u => u && String(u).startsWith("http"));
-  };
   zichtbaar = zichtbaar.filter(p => {
     const ai = getCardAi(p.id, p);
     const outcome = outcomes[p.id];
-    if (filters.heeftAirbnb && !(ai?.airbnb?.gevonden)) return false;
-    if (filters.heeftBooking && !(ai?.booking?.gevonden)) return false;
-    if (filters.heeftFoto && !hasPicture(p.id, p)) return false;
     if (filters.heeftAi && !enriched[p.id]) return false;
     if (filters.geenAgentuur && enriched[p.id]?.waarschuwingAgentuur) return false;
-    if (filters.filterReden === "slechte_site" && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
-    if (filters.filterReden === "slechte_reviews" && !enriched[p.id]?.slechteReviews) return false;
     if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
@@ -1657,35 +1640,6 @@ export default function App() {
             </div>
 
             <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Online aanwezigheid (na AI / scan)</div>
-              <div style={S.filterCheckRow}>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftAirbnb} onChange={e => setFilters(f => ({ ...f, heeftAirbnb: e.target.checked }))} />
-                  Op Airbnb
-                </label>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftBooking} onChange={e => setFilters(f => ({ ...f, heeftBooking: e.target.checked }))} />
-                  Op Booking
-                </label>
-                <label style={S.checkLabel} title="Alleen panden met minstens één foto (van scan of AI)">
-                  <input type="checkbox" checked={filters.heeftFoto} onChange={e => setFilters(f => ({ ...f, heeftFoto: e.target.checked }))} />
-                  Heeft foto
-                </label>
-              </div>
-            </div>
-
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Filter op reden (verbeterkans)</div>
-              <div style={S.filterCheckRow}>
-                <FilterSelect
-                  label="Reden"
-                  value={filters.filterReden}
-                  onChange={v => setFilters(f => ({ ...f, filterReden: v }))}
-                  options={[["", "Alle redenen"], ["slechte_site", "Slechte site"], ["slechte_reviews", "Slechte reviews"]]}
-                />
-              </div>
-            </div>
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
               <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Belstatus</div>
               <div style={S.filterCheckRow}>
                 <FilterSelect
@@ -1741,12 +1695,8 @@ export default function App() {
                     heeftWebsite: false,
                     heeftTelefoon: false,
                     heeftEmail: false,
-                    heeftAirbnb: false,
-                    heeftBooking: false,
-                    heeftFoto: false,
                     heeftAi: false,
                     geenAgentuur: false,
-                    filterReden: "",
                     belstatus: "",
                     toonVerborgen: false,
                     toonAfgewezen: true,
