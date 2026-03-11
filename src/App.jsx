@@ -1135,6 +1135,7 @@ export default function App() {
   const [totalCount, setTotalCount] = useState(0);
   const [dbTotalCount, setDbTotalCount] = useState(0);
   const [phoneGroups, setPhoneGroups] = useState({}); // phoneNorm -> [ids]
+  const enrichBatchRef = useRef(0); // verhoogt bij elke nieuwe Start AI, om oude batches stil te leggen
   // Monday config
   const [mondayCfg, setMondayCfg] = useState(() => ({
     apiKey:        loadCfg("monday_key"),
@@ -1222,6 +1223,9 @@ export default function App() {
 
   // Batch verrijking - laadt alle panden van de pagina 3 tegelijk op
   const startBatchEnrich = useCallback((items, groups, priorityIds = null) => {
+    // Nieuwe batch-id: alle lopende workers van vorige batches stoppen na hun huidige pand
+    enrichBatchRef.current += 1;
+    const myBatch = enrichBatchRef.current;
     const cached = load("enriched", {});
     let toEnrich = items.filter(p => !cached[p.id]);
     // If priority list given, enrich those first
@@ -1237,6 +1241,8 @@ export default function App() {
     let idx = 0;
 
     const volgende = async () => {
+      // Als er ondertussen een nieuw Start AI-commando is geweest, stopt deze batch stilletjes
+      if (myBatch !== enrichBatchRef.current) return;
       if (idx >= toEnrich.length) return;
       const prop = toEnrich[idx++];
       setEnrichingIds(s => new Set([...s, prop.id]));
@@ -1259,7 +1265,7 @@ export default function App() {
       } catch (e) { console.error("Verrijking mislukt voor", prop.name, e); }
       finally {
         setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; });
-        await volgende(); // pak volgende zodra deze klaar is
+        await volgende(); // pak volgende zodra deze klaar is (tenzij batch intussen vervangen is)
       }
     };
 
@@ -1620,7 +1626,10 @@ export default function App() {
               opacity: enrichingIds.size > 0 ? 0.7 : 1,
             }}
             onClick={() => {
-              if (enrichingIds.size > 0) return;
+              // Stop vorige batch visueel en start enkel voor deze pagina/filters
+              if (enrichingIds.size > 0) {
+                setEnrichingIds(new Set());
+              }
               setAiGestart(true);
               // Enrich ONLY the currently zichtbare (gefilterde) kaarten op deze pagina
               const target = zichtbaar;
