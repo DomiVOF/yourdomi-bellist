@@ -2204,28 +2204,6 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             )}
 
-            {/* CONTRACT ADVIES (alleen aanbeveling; geen suggestie op de kaart) */}
-            {ai.contractadvies && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.15s both" }}>
-                <SectieTitel>📝 Aanbevolen contract</SectieTitel>
-                <div style={S.contractGrid}>
-                  {Object.entries(CONTRACT_INFO).map(([key, info]) => (
-                    <div key={key} style={{
-                      ...S.contractKaart,
-                      border: ai.contractadvies === key ? `2px solid ${info.color}` : `1px solid ${T.border}`,
-                      background: ai.contractadvies === key ? info.color + "12" : T.bgCard,
-                    }}>
-                      <div style={{ ...S.contractPct, color: info.color }}>{info.pct}</div>
-                      <div style={S.contractLabel}>{info.label}</div>
-                      <div style={S.contractDesc}>{info.desc}</div>
-                      {ai.contractadvies === key && <div style={{ ...S.contractAanbevolen, background: info.color }}>Aanbevolen</div>}
-                    </div>
-                  ))}
-                </div>
-                {ai.contractUitleg && <p style={S.contractUitleg}>{ai.contractUitleg}</p>}
-              </div>
-            )}
-
             {/* BEHEERFORMULES – CHEAT SHEET (referentie, geen per-pand suggestie) */}
             <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.15s both" }}>
               <SectieTitel>📋 Beheerformules – overzicht</SectieTitel>
