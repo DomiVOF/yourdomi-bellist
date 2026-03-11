@@ -330,59 +330,33 @@ function buildZoekLinks(property) {
 // --- AI VERRIJKING ------------------------------------------------------------
 async function enrichProperty(property, portfolioInfo = null) {
   const portfolioContext = portfolioInfo
-    ? `\nBELANGRIJK - PORTFOLIO EIGENAAR: Deze eigenaar heeft ${portfolioInfo.count} panden: ${portfolioInfo.names.join(", ")}\nDit is een HOGE PRIORITEIT portfolio lead. Verwerk dit expliciet in de openingszin.`
-
-
-
-
-
+    ? `\nBELANGRIJK - PORTFOLIO EIGENAAR: Deze eigenaar heeft ${portfolioInfo.count} panden: ${portfolioInfo.names.join(", ")}.`
     : "";
 
-  const prompt = `Je bent een verkoopintelligentie-assistent voor yourdomi.be, een Belgisch beheerbedrijf voor kortetermijnverhuur (Airbnb, Booking.com, VRBO).
-VERKOOPSFILOSOFIE: Wij stellen vragen ipv uitleggen wie we zijn. We laten eigenaars zichzelf "verkopen" door te vragen naar hun situatie, pijnpunten en wensen. Goede verkopers luisteren 70%, spreken 30%.${portfolioContext}
+  const prompt = `Je bent een AI-assistent voor yourdomi.be, een Belgisch beheerbedrijf voor kortetermijnverhuur (Airbnb, Booking.com, VRBO). Je focust op één ding: kort en concreet beschrijven in welke situatie de eigenaar nu zit en waar yourdomi kan helpen.${portfolioContext}
 
-Pandgegevens uit Toerisme Vlaanderen register:
+Pandgegevens:
 - Naam: ${property.name}
 - Adres: ${property.street}, ${property.postalCode} ${property.municipality}, ${property.province}
 - Status: ${property.status} | Sterren: ${property.starRating || "geen"} | Slaapplaatsen: ${property.sleepPlaces || "?"} | Units: ${property.units || "1"}
 - Tel: ${property.phone || "niet beschikbaar"} | Email: ${property.email || "niet beschikbaar"} | Website: ${property.website || "niet gevonden"}
 
-STAP 1 - Online aanwezigheid zoeken (VERPLICHT - gebruik web_search + web_fetch):
-Zoek systematisch met deze queries (doe elke zoekactie apart):
-1. web_search: "${property.name} ${property.municipality} Airbnb" → zoek exacte Airbnb listing URL (airbnb.com/rooms/...)
-2. web_search: "${property.name} ${property.municipality} Booking.com" → zoek exacte Booking URL (booking.com/hotel/...)
-3. web_search: "${property.name} ${property.municipality} vakantiewoning" → zoek directe website
-4. Als Airbnb URL gevonden: web_fetch de listing pagina → extraheer foto URLs (a0.muscache.com CDN), prijs, beoordeling, en inhoud van gastreviews (tekst of snippets).
-5. Als Booking URL gevonden: web_fetch de listing pagina → extraheer foto URLs (cf.bstatic.com CDN), prijs, beoordeling, en inhoud van gastreviews.
-${property.website ? `6. web_fetch "${property.website}" → controleer HTTP status. Als 200 met echte verhuurcontent: werkt=true en zoek foto URLs. Bij fout/parkeerdomein: werkt=false, gevonden=false.` : ""}
+Gebruik eventueel een paar web_search / web_fetch calls om Airbnb, Booking of een eigen website te vinden, maar houd het beknopt (niet te veel tokens).
 
-REVIEWS VOOR VERKOOPGESPREK: Als je een Airbnb- of Booking-listing hebt opgehaald, analyseer de gastreviews (of review-snippets op de pagina / in zoekresultaten). Zoek terugkerende thema's die we in het verkoopgesprek kunnen gebruiken, bv.: slechte of inconsistente schoonmaak, lawaai/geluid, parkeren, trage of slechte communicatie, ontbrekende voorzieningen, prijs/kwaliteit. Geef 2-5 korte punten in "reviewThemes" (Nederlands). Geen punten = lege array. Zet "slechteReviews" op true als de gastreviews overwegend negatief zijn of terugkerende klachten noemen (schoonmaak, communicatie, prijs/kwaliteit) die een duidelijke verbeterkans geven voor yourdomi.
+Schrijf vooral een eenvoudige samenvatting in het Nederlands:
+- Beschrijf in 2–3 zinnen hoe de verhuur NU waarschijnlijk geregeld is (zelfbeheer vs. agentuur, online aanwezigheid, kwaliteit/reviews).
+- Beschrijf in 1–2 zinnen HOE yourdomi concreet kan helpen (beheer, optimalisatie, ontzorging, betere bezetting/prijzen).
+- Bepaal of dit waarschijnlijk een agentuur/beheerskantoor is of de eigenaar zelf (op basis van email/telefoon/website/naam).
 
-BELANGRIJK voor websites:
-- Voeg ALLEEN een website toe als je deze effectief hebt kunnen ophalen via web_fetch en hij HTTP 200 teruggeeft met echte vakantieverhuur content
-- Als de fetch faalt (timeout, 404, 403, redirect naar parkeerdomein), zet directWebsite.werkt = false en directWebsite.gevonden = false
-- Parkeer/placeholder sites (bv. "This domain is for sale", Sedo, GoDaddy) tellen NIET als werkende website
-- Zet directWebsite.poorlyBuilt = true als de site WEL werkt maar slecht is: verouderd design, kapotte layout, geen boekingsmogelijkheid, amateuraanpak. Dat is een HEET-signaal (eigenaar kan baat hebben bij yourdomi).
-- Geef ECHTE foto URLs terug die je hebt gevonden via web_fetch op de listing pagina (airbnb CDN: a0.muscache.com, booking CDN: cf.bstatic.com) - geen placeholders
-- Als je geen foto URLs kan extraheren uit de pagina inhoud, geef een lege array terug
-
-STAP 2 - Agentuur detectie:
-Analyseer of het telefoonnummer/email waarschijnlijk een beheerskantoor/agentuur is ipv de eigenaar zelf. Signalen: generiek emaildomein, bekende vastgoedkantoren, meerdere panden op hetzelfde nr, "info@" adressen van vakantieverhuurders.
-
-STAP 3 - Consultieve gespreksstructuur:
-Maak 5-7 open vragen die de eigenaar aan het woord laten. Begin met de situatie peilen, dan pijnpunten, dan wensen. NIET pitchen, NIET uitleggen - VRAGEN. Structuur: situatievragen -> implicatievragen -> wensvragen.
-
-SCORE CRITERIA (volg dit strikt):
-🔥 HEET = Eigenaar beheert ZELF (geen agentuur), heeft directe contactgegevens, pand is NIET of slecht online (kans om waarde te tonen), OF staat al online maar heeft lage reviews/slechte prijszetting (duidelijke pijnpunten). Een SLECHT GEBOUWDE WEBSITE (verouderd, kapotte layout, geen boekingsmogelijkheid) telt als extra HEET-signaal.
-W WARM = Eigenaar beheert zelf maar is al redelijk goed online. Of: contactgegevens beschikbaar maar onduidelijk of zelf beheert. Bellen loont maar minder urgent.
-K KOUD = Duidelijk al professioneel beheerd (agentuur gedetecteerd), geen contactgegevens, of pand is al perfect geoptimaliseerd zonder ruimte voor yourdomi.
-
-PRIORITEIT: Geef 1-10. Als er een Airbnb- of Booking.com-listing is gevonden, tel +2 bij de prioriteit (max 10) zodat onze bellers deze eigenaars sneller kunnen contacteren.
+Scorelogica:
+- HEET = eigenaar (of vermoed eigenaar) beheert zelf en er is duidelijk ruimte voor verbetering (online zichtbaarheid, reviews, pricing, tijdsdruk).
+- WARM = al redelijk goed geregeld, maar nog enkele duidelijke verbeterpunten.
+- KOUD = duidelijk professioneel beheerd of weinig ruimte voor extra meerwaarde.
 
 Geef ALLEEN deze JSON (geen markdown):
 {
   "score": "HEET"|"WARM"|"KOUD",
-  "scoreReden": "Concrete reden op basis van de criteria: waarom precies HEET/WARM/KOUD? Vermeld specifiek: beheert zelf of agentuur? Online aanwezig of niet? Ruimte voor verbetering? Max 2 zinnen.",
+  "scoreReden": "Korte uitleg waarom dit pand HEET/WARM/KOUD is, met focus op huidige situatie van de eigenaar (zelfbeheer/agentuur, online zichtbaarheid, kwaliteit) en ruimte voor verbetering. Max 2 zinnen.",
   "prioriteit": 1-10,
   "openingszin": "Als NIET online gevonden: stel meteen een vraag of ze online zichtbaar zijn en waar ze staan. Als WEL gevonden: verwijs concreet naar hun listing/locatie/portfolio. Max 2 zinnen. NOOIT jezelf introduceren als 'wij zijn...', altijd starten vanuit hun situatie.",
   "consultieveVragen": [
@@ -396,7 +370,7 @@ Geef ALLEEN deze JSON (geen markdown):
   ],
   "waarschuwingAgentuur": true|false,
   "agentuurSignalen": "Uitleg waarom dit mogelijk een agentuur/beheerder is ipv eigenaar, of leeg als niet van toepassing",
-  "pitchhoek": "Na de vragen: wat biedt yourdomi specifiek voor DEZE eigenaar. 2 zinnen.",
+  "pitchhoek": "In 1-2 zinnen: hoe kan yourdomi concreet helpen in deze specifieke situatie (beheer, optimalisatie, ontzorging, betere bezetting/prijs)?",
   "zwaktes": ["concreet verbeterpunt 1", "concreet verbeterpunt 2", "concreet verbeterpunt 3"],
   "reviewThemes": ["terugkerend punt uit reviews bv. schoonmaak", "nog een thema dat in gesprek bruikbaar is"],
   "slechteReviews": true|false,
@@ -886,34 +860,21 @@ Only include columns where you have a real value. Skip columns you can't confide
 
 // --- TEAMS MEETING LINK GENERATOR --------------------------------------------
 function buildGoogleMeetUrl(property, ai, note) {
-  const subject = encodeURIComponent(`Kennismaking yourdomi.be - ${property.name}, ${property.municipality}`);
+  const naam = property.contactNaam || "";
+  const subject = encodeURIComponent(`Kennismaking YourDomi`);
+  const introNaam = naam ? `Beste ${naam},` : `Beste,`;
 
-  const lines = [
-    `🏠 CONTACTGEGEVENS`,
-    property.phone   ? `📞 Telefoon:  ${property.phone}`  : null,
-    property.email   ? `✉️  E-mail:    ${property.email}`  : null,
-    property.website ? `🌐 Website:   ${property.website}` : null,
-    ``,
-    `📍 PAND`,
-    `   Naam:    ${property.name}`,
-    [property.street, property.postalCode, property.municipality].filter(Boolean).length
-      ? `   Adres:   ${[property.street, property.postalCode, property.municipality].filter(Boolean).join(", ")}` : null,
-    property.slaapplaatsen ? `   Slaapplaatsen: ${property.slaapplaatsen}` : null,
-    ``,
-    `💼 YOURDOMI ANALYSE`,
-    ai?.geschatMaandelijksInkomen ? `   Huidig inkomen:    ${ai.geschatMaandelijksInkomen}/maand`     : null,
-    ai?.potentieelMetYourDomi     ? `   Potentieel:        ${ai.potentieelMetYourDomi}/maand`          : null,
-    ai?.contractadvies ? `   Besproken formule: ${ai.contractadvies === "full" ? "Volledig beheer (25%)" : ai.contractadvies === "partial" ? "Gedeeld beheer (20%)" : "Zichtbaarheid (10%)"}` : null,
-    note ? `\n📝 BELNOTITIES\n${note}` : null,
-    ``,
-    `──────────────────────────`,
-    `Agenda automatisch aangemaakt via yourdomi.be bellijst`,
-  ].filter(v => v !== null);
+  const body = encodeURIComponent(
+    `${introNaam}\n\n` +
+    `Tijdens deze afspraak overlopen we uw situatie en bekijken we hoe wij u kunnen ondersteunen binnen het beheer en de optimalisatie van uw vakantiewoning.\n\n` +
+    `Mocht u verhinderd zijn of nog vragen hebben voorafgaand aan de afspraak, aarzel dan niet om ons te contacteren.\n\n` +
+    `Voor meer info kan u onze website www.yourdomi.be gerust raadplegen.\n\n` +
+    `Met vriendelijke groet,\nYourDomi`
+  );
 
-  const body = encodeURIComponent(lines.join("\n"));
-  const location = encodeURIComponent([property.street, property.postalCode, property.municipality].filter(Boolean).join(", "));
+  const guests = property.email ? `&add=${encodeURIComponent(property.email)}` : "";
 
-  return `https://calendar.google.com/calendar/r/eventedit?text=${subject}&details=${body}&location=${location}&crm=AVAILABLE`;
+  return `https://calendar.google.com/calendar/r/eventedit?text=${subject}&details=${body}${guests}&crm=AVAILABLE`;
 }
 
 function buildInternalDebriefUrl(property, ai, note) {
@@ -1978,7 +1939,11 @@ export default function App() {
                       {phones.length > 1 && <span style={{ fontSize: 9, color: T.textLight }}>#{ti+1}</span>}
                     </a>
                   )) : (prop.email || prop["contact-email"]) ? (
-                    <a href={`mailto:${prop.email || prop["contact-email"]}`} onClick={e => e.stopPropagation()}
+                    <a
+                      href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(prop.email || prop["contact-email"])}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={e => e.stopPropagation()}
                       style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, textDecoration: "none" }}>
                       <span>✉️</span>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{prop.email || prop["contact-email"]}</span>
@@ -2039,9 +2004,16 @@ export default function App() {
 
       {/* PAGINERING */}
       <div style={S.paginering}>
-        <button style={S.pagBtn} disabled={page <= 1} onClick={() => { setPage(p => p-1); laadPanden(page-1); }}>&laquo; Vorige</button>
+        <button
+          style={S.pagBtn}
+          disabled={page <= 1}
+          onClick={() => { const next = page - 1; setPage(next); laadPanden(next, filters); }}
+        >&laquo; Vorige</button>
         <span style={{ color: T.textLight, fontSize: 12 }}>~{totalCount} panden</span>
-        <button style={S.pagBtn} onClick={() => { setPage(p => p+1); laadPanden(page+1); }}>Volgende &raquo;</button>
+        <button
+          style={S.pagBtn}
+          onClick={() => { const next = page + 1; setPage(next); laadPanden(next, filters); }}
+        >Volgende &raquo;</button>
       </div>
     </div>
   );
@@ -2395,7 +2367,14 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
                 ⏳ Contactgegevens worden opgehaald...
               </div>
             )}
-            {property.email && <ContactRegel icoon="@" label="E-mail" val={property.email} href={`mailto:${property.email}`} />}
+            {property.email && (
+              <ContactRegel
+                icoon="@"
+                label="E-mail"
+                val={property.email}
+                href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(property.email)}`}
+              />
+            )}
             {property.website && <ContactRegel icoon="🌐" label="Website" val={property.website} href={property.website.startsWith("http") ? property.website : "https://" + property.website} />}
             {property.street && <ContactRegel icoon="📍" label="Straat" val={`${property.street}${property.postalCode ? ", " + property.postalCode : ""}${property.municipality ? " " + property.municipality : ""}`} href={`https://maps.google.com/?q=${encodeURIComponent([property.street, property.postalCode, property.municipality].filter(Boolean).join(" "))}`} />}
             <ContactRegel icoon="🔖" label="TV Register" val={property.registrationNumber?.slice(-12) || property.id.slice(-12)} href={property.rawUrl} />
@@ -2476,13 +2455,12 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
           <div style={S.actieBtns}>
             <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnAfwijzen, ...(outcome === "afgewezen" ? { background: T.red, color: "#fff", border: `1px solid ${T.red}` } : {}) }}
-            onClick={() => { onAfgewezen(); onTerug && onTerug(); }}>
+            onClick={() => { onAfgewezen(); }}>
               <span>x</span> Afwijzen
             </button>
             <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnCallback, ...(outcome === "callback" ? { background: T.orange, color: "#fff", border: `1px solid ${T.orange}` } : {}) }}
             onClick={() => {
               onOutcome(outcome === "callback" ? null : "callback");
-              if (onTerug) onTerug();
             }}>
               <span>(~)</span> Terugbellen
             </button>
