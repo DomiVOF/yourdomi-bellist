@@ -1124,6 +1124,7 @@ export default function App() {
     heeftAirbnb: false,
     heeftBooking: false,
     heeftFoto: false,
+    heeftAi: false,
     geenAgentuur: false,
     filterReden: "", // "" | "slechte_site" | "slechte_reviews"
     belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
@@ -1371,6 +1372,7 @@ export default function App() {
     if (filters.heeftAirbnb && !(ai?.airbnb?.gevonden)) return false;
     if (filters.heeftBooking && !(ai?.booking?.gevonden)) return false;
     if (filters.heeftFoto && !hasPicture(p.id, p)) return false;
+    if (filters.heeftAi && !enriched[p.id]) return false;
     if (filters.geenAgentuur && enriched[p.id]?.waarschuwingAgentuur) return false;
     if (filters.filterReden === "slechte_site" && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
     if (filters.filterReden === "slechte_reviews" && !enriched[p.id]?.slechteReviews) return false;
@@ -1699,9 +1701,13 @@ export default function App() {
                 />
               </div>
             </div>
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>AI-signalen</div>
+            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 8, marginTop: 4 }}>
+              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 4 }}>AI-signalen</div>
               <div style={S.filterCheckRow}>
+                <label style={S.checkLabel}>
+                  <input type="checkbox" checked={filters.heeftAi} onChange={e => setFilters(f => ({ ...f, heeftAi: e.target.checked }))} />
+                  Alleen AI-gescand
+                </label>
                 <label style={S.checkLabel} title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
                   <input type="checkbox" checked={filters.geenAgentuur} onChange={e => setFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} />
                   Geen agentuur/makelaar
@@ -1738,6 +1744,7 @@ export default function App() {
                     heeftAirbnb: false,
                     heeftBooking: false,
                     heeftFoto: false,
+                    heeftAi: false,
                     geenAgentuur: false,
                     filterReden: "",
                     belstatus: "",
@@ -1761,7 +1768,7 @@ export default function App() {
 
         {displayMode === "table" && (
           <div style={{ gridColumn: "1 / -1", width: "100%", maxWidth: "100%", overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12, background: T.bgCard, marginTop: 12 }}>
-            <table style={{ width: "100%", minWidth: 800, borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ width: "100%", minWidth: 800, borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.bgCardAlt, borderBottom: `2px solid ${T.border}` }}>
                   <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Naam</th>
@@ -1788,7 +1795,11 @@ export default function App() {
                   <tr
                     key={p.id || i}
                     className="yd-table-row"
-                    style={{ borderBottom: `1px solid ${T.borderLight}`, cursor: "pointer" }}
+                    style={{
+                      borderBottom: `1px solid ${T.borderLight}`,
+                      cursor: "pointer",
+                      background: enriched[p.id]?.score === "HEET" ? T.orangePale : T.bgCard,
+                    }}
                     onClick={() => {
                       setSelected(p);
                       setView("dossier");
@@ -1804,7 +1815,7 @@ export default function App() {
                       }
                     }}
                   >
-                    <td style={{ padding: "8px 12px", color: T.text }}>{p.name || "—"}</td>
+                    <td style={{ padding: "8px 12px", color: enriched[p.id]?.score === "HEET" ? T.orangeDark : T.text }}>{p.name || "—"}</td>
                     <td style={{ padding: "8px 12px", color: T.textMid }}>{p.street || "—"}</td>
                     <td style={{ padding: "8px 12px", color: T.textMid }}>{p.municipality || "—"}</td>
                     <td style={{ padding: "8px 12px", color: T.textMid }}>{p.postalCode || "—"}</td>
