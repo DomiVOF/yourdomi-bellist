@@ -1,5 +1,6 @@
-// YourDomi Bellijst v2.1 — build 2026-03-10
+// YourDomi Bellijst v2.2 — redesign: Tailwind + Nunito + lucide-react
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
 
 // --- DESIGN TOKENS (light, gold-accent theme) --------------------------------
 const T = {
@@ -934,35 +935,25 @@ function MeetTranscriptNotetaker({ onFilled }) {
     }
   };
   return (
-    <div style={{ marginBottom: 0 }}>
+    <div>
       <textarea
-        style={{ ...S.notitieVeld, marginBottom: 8 }}
+        className="w-full bg-white border border-[#EBEBEB] rounded-xl p-4 text-sm text-[#1A1A1A] outline-none focus:ring-2 focus:ring-yd-red/30 resize-y mb-3 font-nunito"
         rows={4}
         placeholder="Plak hier het transcript van je JustCall-belgesprek (of ander beltranscript)..."
         value={transcript}
         onChange={e => { setTranscript(e.target.value); setError(null); }}
         disabled={loading}
       />
-      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           type="button"
-          style={{
-            background: T.green,
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            padding: "8px 16px",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: loading ? "wait" : "pointer",
-            opacity: loading ? 0.8 : 1,
-          }}
+          className="rounded-[10px] py-2.5 px-5 bg-[#1A1A1A] text-white font-semibold text-sm border-0 cursor-pointer disabled:opacity-80 disabled:cursor-wait hover:opacity-90 transition-opacity"
           onClick={handleSummarize}
           disabled={loading}
         >
           {loading ? "Bezig..." : "Genereer notities uit transcript"}
         </button>
-        {error && <span style={{ fontSize: 12, color: T.red }}>{error}</span>}
+        {error && <span className="text-xs text-yd-red">{error}</span>}
       </div>
     </div>
   );
@@ -974,6 +965,147 @@ const SCORES = {
   WARM:  { kleur: "#E8A838",    pale: "#FDF5E0",     border: "#E8A838", emoji: null, label: "WARM" },
   KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: null, label: "KOUD" },
 };
+
+// Single AI insight line for card: missing platform > no agency > poor site > high reviews
+function getCardAiSignal(fullAi, ai) {
+  if (!ai && !fullAi) return null;
+  const a = fullAi || ai;
+  const hasAirbnb = ai?.airbnb?.gevonden;
+  const hasBooking = ai?.booking?.gevonden;
+  if (!hasAirbnb && hasBooking) return "Alleen Booking.com — mist Airbnb";
+  if (hasAirbnb && !hasBooking) return "Alleen Airbnb — mist Booking.com";
+  if (!hasAirbnb && !hasBooking && (ai || fullAi)) return "Geen Airbnb/Booking gevonden";
+  if (a?.waarschuwingAgentuur) return "Mogelijk agentuur — vraag naar eigenaar";
+  if (!a?.waarschuwingAgentuur && (fullAi || ai)) return "Beheert zelf — geen agentuur";
+  if (a?.directWebsite?.poorlyBuilt) return "Slechte eigen website";
+  const bookingScore = a?.booking?.beoordeling || a?.booking?.rating;
+  const airbnbScore = a?.airbnb?.beoordeling || a?.airbnb?.rating;
+  if (bookingScore) return `${bookingScore}${String(bookingScore).length <= 2 ? "/10" : ""} op Booking.com`;
+  if (airbnbScore) return `${airbnbScore} op Airbnb`;
+  return null;
+}
+
+// --- PROPERTY CARD (dense layout for cold callers) -----------------------------
+function PropertyCard({
+  prop,
+  fullAi,
+  ai,
+  outcome,
+  enriching,
+  isVerborgen,
+  heeftPortfolio,
+  portfolioAantal,
+  uitkomstLabel,
+  onCardClick,
+  onAfgewezen,
+  onOutcome,
+  onInteresseClick,
+  animationStyle,
+}) {
+  const street = prop.street || prop["address-street"] || prop.straat || "";
+  const city = prop.municipality || prop["municipality-name"] || prop.gemeente || "";
+  const postalCode = prop.postalCode || prop["postal-code"] || "";
+  const fullAddress = prop.fullAddress || prop["fullAddress"] || ([street, postalCode, city].filter(Boolean).join(", ") || "");
+  const sleep = prop.sleepPlaces ?? prop["number-of-sleep-places"] ?? prop.slaapplaatsen ?? null;
+  const units = prop.units ?? prop["number-of-units"] ?? 1;
+  const phones = [];
+  const addPhone = (v) => { if (v && !phones.includes(v)) phones.push(v); };
+  addPhone(prop.phone); addPhone(prop.phone2); addPhone(prop["contact-phone"]); addPhone(prop.telefoon); addPhone(prop.phone1);
+  if (Array.isArray(prop.phones)) prop.phones.forEach(addPhone);
+  const email = prop.email || prop["contact-email"];
+  const scoreNum = fullAi?.prioriteit != null ? String(Math.min(99, Math.max(0, fullAi.prioriteit * 10))).padStart(2, "0") : (fullAi?.score === "HEET" ? "85" : fullAi?.score === "WARM" ? "60" : fullAi?.score === "KOUD" ? "40" : null);
+  const aiSignal = getCardAiSignal(fullAi, ai);
+  const platformLabels = [];
+  if (ai?.airbnb?.gevonden) platformLabels.push("Airbnb");
+  if (ai?.booking?.gevonden) platformLabels.push("Booking");
+  const platformStr = platformLabels.length ? platformLabels.join(", ") : "—";
+  const sc = fullAi?.score ? SCORES[fullAi.score] : null;
+  const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
+
+  return (
+    <div
+      className={`rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
+      style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)", ...animationStyle }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        className="p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito"
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCardClick(); } }}
+        onClick={onCardClick}
+      >
+        {/* TOP ROW: name left, score pill + HEET pill right next to each other */}
+        <div className="flex justify-between items-start gap-3">
+          <h3 className="text-lg font-bold text-[#1A1A1A] leading-tight line-clamp-2 flex-1 min-w-0 font-nunito">{prop.name}</h3>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {scoreNum != null && (
+              <span className="rounded-[999px] bg-[#1A1A1A] text-white text-xs px-3 py-0.5 font-medium">{scoreNum}</span>
+            )}
+            {sc?.label === "HEET" && (
+              <span className="rounded-[999px] bg-[#FF6B35] text-white text-xs px-2 py-0.5 font-semibold">HEET</span>
+            )}
+          </div>
+        </div>
+
+        {/* SECOND ROW: full address */}
+        <div className="text-sm text-[#888888] mt-1 truncate">{fullAddress || "—"}</div>
+
+        <div className="border-t border-[#EBEBEB] my-3" />
+
+        {/* CONTACT ROW */}
+        <div className="flex items-center gap-1.5">
+          {phones.length > 0 ? (
+            <a href={`tel:${phones[0]}`} onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-sm font-semibold text-[#1A1A1A] no-underline">
+              <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>{phones[0]}</span>
+            </a>
+          ) : email ? (
+            <a href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(email)}`} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-1.5 text-sm font-semibold text-[#1A1A1A] no-underline truncate max-w-[200px]">
+              <Mail className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">{email}</span>
+            </a>
+          ) : (
+            <span className="flex items-center gap-1 text-sm italic text-[#E8231A] font-nunito" style={{ opacity: 0.7 }}>
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              Geen contact
+            </span>
+          )}
+        </div>
+
+        {/* AI SIGNAL ROW */}
+        <div className="text-xs text-[#6B7280] italic mt-1 min-h-[1.25rem]">
+          {enriching ? "Bezig met scannen…" : aiSignal || "Nog niet gescand"}
+        </div>
+
+        <div className="border-t border-[#EBEBEB] my-3" />
+
+        {/* STATS ROW */}
+        <div className="flex items-center gap-2 text-xs text-[#888888] flex-wrap">
+          <span className="flex items-center gap-1"><Bed className="w-3.5 h-3.5" /> {sleep > 0 ? `${sleep} slaapplaatsen` : "—"}</span>
+          <span>•</span>
+          <span className="flex items-center gap-1"><Home className="w-3.5 h-3.5" /> {units > 1 ? `${units} units` : "1 unit"}</span>
+          <span>•</span>
+          <span className="flex items-center gap-1"><Globe className="w-3.5 h-3.5" /> {platformStr}</span>
+        </div>
+
+        {/* TAGS ROW */}
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {prop.status && <span className="rounded-full px-2 py-0.5 text-xs bg-yd-bg text-yd-muted border border-yd-border">{prop.status}</span>}
+          {fullAi && !enriching && (fullAi.score != null || fullAi.prioriteit != null) && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">AI-gescand</span>}
+          {poorWebsite && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Slechte site</span>}
+          {heeftPortfolio && <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">🏘 Portfolio</span>}
+        </div>
+      </div>
+
+      {/* BOTTOM ACTION ROW (buttons don't navigate) */}
+      <div className="px-[20px] pb-5 pt-0 flex gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); onAfgewezen(); }}>Afwijzen</button>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); onOutcome(outcome === "callback" ? null : "callback"); }}>Terugbellen</button>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "gebeld_interesse" ? "bg-[#22C55E] text-[#1A1A1A] border-[#22C55E] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); const isInteresse = outcome === "gebeld_interesse"; onOutcome(isInteresse ? null : "gebeld_interesse"); if (!isInteresse && onInteresseClick) onInteresseClick(prop); }}>✓ Interesse</button>
+      </div>
+    </div>
+  );
+}
 
 const CONTRACT_INFO = {
   visibility: { label: "Zichtbaarheid", pct: "10%", color: T.greenLight, desc: "Eigenaar beheert zelf" },
@@ -1011,21 +1143,21 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap');`}</style>
-      <div style={{ background: "#fff", borderRadius: 16, padding: "40px 36px", width: 360, boxShadow: "0 4px 24px rgba(0,0,0,0.08)", border: "1px solid #E8E4DC" }}>
-        <div style={{ marginBottom: 28, textAlign: "center" }}>
-          <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 26, fontWeight: 900, color: T.green, letterSpacing: -0.5 }}>
-            YourDomi<span style={{ color: "#E07B4A" }}>.</span>
+    <div className="min-h-screen bg-yd-bg flex items-center justify-center font-nunito p-4">
+      <div className="bg-white rounded-card shadow-card border border-yd-border p-8 w-full max-w-[360px]">
+        <div className="mb-7 text-center">
+          <div className="font-bold text-2xl text-yd-black tracking-tight">
+            YourDomi<span className="text-yd-red">.</span>
           </div>
-          <div style={{ fontSize: 12, color: "#9A9488", marginTop: 4, letterSpacing: 2, textTransform: "uppercase" }}>Bellijst</div>
+          <p className="text-xs text-yd-muted mt-1 tracking-widest uppercase">Bellijst</p>
+          <p className="text-xs text-yd-muted mt-2 font-medium">Uw vakantiewoning, onze zorg</p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6560", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 5 }}>Gebruikersnaam</label>
+            <label className="block text-[11px] font-semibold text-yd-muted uppercase tracking-wider mb-1.5">Gebruikersnaam</label>
             <input
-              style={{ width: "100%", background: "#F0EDE6", border: "1px solid #E8E4DC", borderRadius: 8, padding: "10px 12px", fontSize: 14, color: "#2A2520", outline: "none", boxSizing: "border-box" }}
+              className="w-full bg-yd-bg border border-yd-border rounded-input py-2.5 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red box-border"
               placeholder="aaron"
               value={username}
               onChange={e => setUsername(e.target.value)}
@@ -1034,9 +1166,9 @@ function LoginScreen({ onLogin }) {
             />
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6560", textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 5 }}>Wachtwoord</label>
+            <label className="block text-[11px] font-semibold text-yd-muted uppercase tracking-wider mb-1.5">Wachtwoord</label>
             <input
-              style={{ width: "100%", background: "#F0EDE6", border: "1px solid #E8E4DC", borderRadius: 8, padding: "10px 12px", fontSize: 14, color: "#2A2520", outline: "none", boxSizing: "border-box" }}
+              className="w-full bg-yd-bg border border-yd-border rounded-input py-2.5 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red box-border"
               type="password"
               placeholder="••••••••"
               value={password}
@@ -1044,11 +1176,12 @@ function LoginScreen({ onLogin }) {
               onKeyDown={e => e.key === "Enter" && login()}
             />
           </div>
-          {error && <div style={{ fontSize: 12, color: "#C0392B", background: "#FDF2F2", borderRadius: 6, padding: "8px 10px" }}>⚠️ {error}</div>}
+          {error && <div className="text-xs text-yd-red bg-red-50 rounded-btn py-2 px-2.5">⚠️ {error}</div>}
           <button
+            type="button"
             onClick={login}
             disabled={loading || !username || !password}
-            style={{ background: "#2D5C4E", color: "#fff", border: "none", borderRadius: 8, padding: "11px", fontSize: 14, fontWeight: 600, cursor: "pointer", marginTop: 4, opacity: (loading || !username || !password) ? 0.6 : 1, fontFamily: "inherit" }}
+            className="w-full mt-1 py-3 rounded-btn bg-yd-black text-white font-semibold text-sm border-0 cursor-pointer hover:bg-[#333] transition-colors duration-150 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {loading ? "Inloggen..." : "Inloggen →"}
           </button>
@@ -1110,6 +1243,7 @@ export default function App() {
   const [mondaySyncing, setMondaySyncing] = useState(new Set());
   const [mondayStatus, setMondayStatus] = useState({}); // id -> "ok"|"fout"|"bezig"
   const [mondayFout, setMondayFout] = useState({}); // id -> error message
+  const [interessePopupProp, setInteressePopupProp] = useState(null); // card Interesse popup
 
   // -- FILTERS --
   const [filters, setFilters] = useState({
@@ -1305,9 +1439,6 @@ export default function App() {
     toHide.forEach(hid => { newOut[hid] = reden; });
     setOutcomes(newOut);
     save("outcomes", newOut);
-    // Ga naar volgende
-    const visible = zichtbaar.filter(p => !toHide.includes(p.id));
-    if (visible.length > 0) { setSelected(visible[0]); }
   }, [properties, phoneGroups, hidden, outcomes]);
 
 
@@ -1404,7 +1535,6 @@ export default function App() {
 
   const heetCount = properties.filter(p => enriched[p.id]?.score === "HEET").length;
   const warmCount = properties.filter(p => enriched[p.id]?.score === "WARM").length;
-  const portfolioCount = Object.values(phoneGroups).filter(g => g.length > 1).length;
   const interesseCount = Object.values(outcomes).filter(o => o === "gebeld_interesse").length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
   const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
@@ -1483,74 +1613,71 @@ export default function App() {
   if (!user || !getToken()) return <LoginScreen onLogin={handleLogin} />;
 
   return (
-    <div style={S.root}>
+    <div className="min-h-screen bg-yd-bg text-yd-black font-nunito max-w-[1400px] mx-auto px-4 md:px-8 box-border overflow-x-hidden">
       <style>{globalCSS}</style>
 
       {/* SERVER ERROR BANNER */}
       {error && !loading && (
-        <div style={{ background: "#e53e3e", color: "white", textAlign: "center", padding: "8px 16px", fontSize: 13, fontWeight: 600 }}>
-          ⚠️ Serverfout: {error} — <button onClick={() => laadPanden(page, filters)} style={{ color: "white", background: "none", border: "1px solid white", borderRadius: 4, padding: "2px 8px", cursor: "pointer", marginLeft: 8 }}>Opnieuw</button>
+        <div className="bg-yd-red text-white text-center py-2 px-4 text-sm font-semibold">
+          ⚠️ Serverfout: {error} — <button type="button" onClick={() => laadPanden(page, filters)} className="ml-2 py-0.5 px-2 border border-white rounded cursor-pointer text-white bg-transparent hover:bg-white/10 transition-colors duration-150">Opnieuw</button>
         </div>
       )}
 
-      <div style={S.header}>
-        <div className="yd-header-inner" style={S.headerInner}>
-          <div style={S.brand}>
-            <span style={S.brandName}>YourDomi</span>
-            <span style={S.brandDot}>.</span>
-            <span style={S.brandSub}>BELLIJST</span>
+      {/* HEADER */}
+      <header className="bg-white border-b border-yd-border sticky top-0 z-50">
+        <div className="flex flex-wrap justify-between items-center gap-2 py-3 px-4 md:px-8 max-w-[1400px] mx-auto">
+          <div className="flex items-baseline gap-0.5">
+            <span className="font-nunito font-bold text-xl text-yd-black">YourDomi</span>
+            <span className="text-yd-red font-bold text-xl leading-none">.</span>
+            <span className="text-[10px] text-yd-muted tracking-widest uppercase ml-1.5">BELLIJST</span>
           </div>
-          <span style={{ fontSize: 12, color: "#9A9488", marginRight: 4 }}>{user?.name || user?.username}</span>
-          <button onClick={handleLogout} style={{ ...S.cfgBtn, fontSize: 10, padding: "5px 10px", color: "#9A9488" }} title="Uitloggen">Uitloggen</button>
-          <button onClick={() => setView("config")} style={S.cfgBtn} title="Monday & instellingen">
-            <span style={{ fontSize: 16 }}></span>
-            {mondayActief ? <span style={S.cfgActief}>Monday v</span> : <span style={S.cfgInactief}>Integraties</span>}
-          </button>
-          <div className="yd-header-stats" style={S.headerStats}>
-            <Stat label="🔥 Heet" val={heetCount} accent />
-            <Stat label="Portfolio" val={portfolioCount} />
-            <Stat label="Interesse" val={interesseCount} />
-            <Stat label="AI-scanned" val={verrijktDb != null ? verrijktDb : verrijktCount} />
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-yd-muted">{user?.name || user?.username}</span>
+            <button type="button" onClick={handleLogout} className="flex items-center gap-1.5 border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-muted hover:bg-yd-bg transition-colors duration-150" title="Uitloggen">
+              <LogOut className="w-3.5 h-3.5" /> Uitloggen
+            </button>
+            <button type="button" onClick={() => setView("config")} className="flex items-center gap-1.5 border border-yd-border rounded-btn py-1.5 px-2.5 text-xs hover:bg-yd-bg transition-colors duration-150" title="Monday & instellingen">
+              <Settings className="w-4 h-4" />
+              {mondayActief ? <span className="text-score-interesse font-semibold">Monday ✓</span> : <span className="text-yd-muted">Integraties</span>}
+            </button>
+            <div className="flex items-center gap-0 flex-wrap">
+              <Stat label="Heet" val={heetCount} accent />
+              <span className="w-px h-5 bg-yd-border mx-2 flex-shrink-0" aria-hidden />
+              <Stat label="Interesse" val={interesseCount} />
+              <span className="w-px h-5 bg-yd-border mx-2 flex-shrink-0" aria-hidden />
+              <Stat label="AI-scanned" val={verrijktDb != null ? verrijktDb : verrijktCount} />
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* FILTERBAR */}
-      <div style={S.filterBar}>
-        <div className="yd-filterbar-row" style={S.filterInner}>
+      {/* FILTER BAR */}
+      <div className="bg-white border-b border-yd-border sticky top-[57px] z-40">
+        <div className="flex flex-wrap gap-2 items-center py-2.5 px-4 md:px-8 min-w-0 w-full max-w-[1400px] mx-auto box-border">
           <input
-            style={S.zoekInput}
+            className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-input py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red transition-shadow"
             placeholder="Zoeken op naam, gemeente, postcode..."
             value={filters.zoek}
             onChange={e => setFilters(f => ({ ...f, zoek: e.target.value }))}
           />
-          <div style={{ display: "flex", alignItems: "center", gap: 4, marginRight: 8 }}>
+          <div className="flex items-center gap-1">
             <button
-              style={{
-                ...S.filterToggleBtn,
-                background: displayMode === "cards" ? T.green : "transparent",
-                color: displayMode === "cards" ? "#fff" : T.textMid,
-                border: `1px solid ${displayMode === "cards" ? T.green : T.border}`,
-              }}
+              type="button"
+              className={`rounded-btn py-2 px-3 text-xs font-semibold transition-all duration-200 ${displayMode === "cards" ? "bg-yd-black text-white border border-yd-black" : "bg-white text-yd-black border border-yd-border hover:bg-yd-bg"}`}
               onClick={() => setDisplayMode("cards")}
             >
               Kaarten
             </button>
             <button
-              style={{
-                ...S.filterToggleBtn,
-                background: displayMode === "table" ? T.green : "transparent",
-                color: displayMode === "table" ? "#fff" : T.textMid,
-                border: `1px solid ${displayMode === "table" ? T.green : T.border}`,
-              }}
+              type="button"
+              className={`rounded-btn py-2 px-3 text-xs font-semibold transition-all duration-200 ${displayMode === "table" ? "bg-yd-black text-white border border-yd-black" : "bg-white text-yd-black border border-yd-border hover:bg-yd-bg"}`}
               onClick={() => setDisplayMode("table")}
             >
               Tabel
             </button>
           </div>
           <select
-            className="yd-sort-select"
-            style={{ ...S.filterInput, minWidth: 160, cursor: "pointer" }}
+            className="min-w-[160px] bg-white border border-yd-border rounded-btn py-2 px-3 text-xs text-yd-black cursor-pointer outline-none focus:ring-2 focus:ring-yd-red/30"
             value={sorteer}
             onChange={e => setSorteer(e.target.value)}
           >
@@ -1562,25 +1689,16 @@ export default function App() {
             <option value="slaap_laag">Sorteren: Slaappl. laag-hoog</option>
             <option value="nieuwste">🆕 Nieuwste online eerst</option>
           </select>
-          <button style={S.filterToggleBtn} onClick={() => setFilterOpen(o => !o)}>
-            Filters {filterOpen ? "^" : "v"}
+          <button type="button" className="rounded-btn py-2 px-3 text-xs border border-yd-border bg-white text-yd-black hover:bg-yd-bg transition-colors duration-150" onClick={() => setFilterOpen(o => !o)}>
+            Filters {filterOpen ? "▲" : "▼"}
           </button>
           <button
-            style={{
-              ...S.filterToggleBtn,
-              background: aiGestart ? "#2D5C4E" : "#E07B4A",
-              color: "#fff",
-              border: "none",
-              fontWeight: 700,
-              opacity: enrichingIds.size > 0 ? 0.7 : 1,
-            }}
+            type="button"
+            className={`rounded-btn py-2 px-4 text-xs font-bold text-white border-none transition-opacity duration-150 ${enrichingIds.size > 0 ? "opacity-70" : "opacity-100"}`}
+            style={{ background: aiGestart ? "#22C55E" : "#E8231A" }}
             onClick={() => {
-              // Stop vorige batch visueel en start enkel voor deze pagina/filters
-              if (enrichingIds.size > 0) {
-                setEnrichingIds(new Set());
-              }
+              if (enrichingIds.size > 0) setEnrichingIds(new Set());
               setAiGestart(true);
-              // Enrich ONLY the currently zichtbare (gefilterde) kaarten op deze pagina
               const target = zichtbaar;
               if (Array.isArray(target) && target.length > 0) {
                 startBatchEnrich(target, phoneGroups, target.map(p => p.id));
@@ -1588,14 +1706,14 @@ export default function App() {
             }}
             title={aiGestart ? "AI verrijking actief" : "Start AI verrijking voor gefilterde panden"}
           >
-            {enrichingIds.size > 0 ? "AI bezig..." : aiGestart ? "AI gestart v" : "Start AI"}
+            {enrichingIds.size > 0 ? "AI bezig..." : aiGestart ? "AI gestart ✓" : "Start AI"}
           </button>
-          <button style={S.refreshBtn} onClick={() => laadPanden(page, filters)}>Zoeken</button>
+          <button type="button" className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150" onClick={() => laadPanden(page, filters)}>Zoeken</button>
         </div>
 
         {filterOpen && (
-          <div style={S.filterPanel}>
-            <div className="yd-filter-grid" style={S.filterGrid}>
+          <div className="pt-3 pb-4 px-4 border-t border-yd-border bg-yd-bg">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-2">
               <FilterSelect label="Score" value={filters.score} onChange={v => setFilters(f => ({ ...f, score: v }))}
                 options={[["", "Alle scores"], ["HEET", "🔥 Heet"], ["WARM", "W Warm"], ["KOUD", "K Koud"]]} />
               <FilterSelect label="Provincie" value={filters.provincie} onChange={v => setFilters(f => ({ ...f, provincie: v }))}
@@ -1606,44 +1724,41 @@ export default function App() {
                 options={[["", "Alle types"], ...meta.types.map(t => [t, t])]} />
               <FilterSelect label="Status" value={filters.status} onChange={v => setFilters(f => ({ ...f, status: v }))}
                 options={[["", "Alle statussen"], ["aangemeld", "Aangemeld"], ["erkend", "Erkend"], ["vergund", "Vergund"]]} />
-              <div style={S.filterField}>
-                <label style={S.filterLabel}>Gemeente</label>
-                <input style={S.filterInput} placeholder="bv. Gent" value={filters.gemeente}
-                  onChange={e => setFilters(f => ({ ...f, gemeente: e.target.value }))} />
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Gemeente</label>
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" placeholder="bv. Gent" value={filters.gemeente} onChange={e => setFilters(f => ({ ...f, gemeente: e.target.value }))} />
               </div>
-              <div style={S.filterField}>
-                <label style={S.filterLabel}>Min. slaapplaatsen</label>
-                <input style={S.filterInput} type="number" placeholder="0" value={filters.minSlaap}
-                  onChange={e => setFilters(f => ({ ...f, minSlaap: e.target.value }))} />
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Min. slaapplaatsen</label>
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="0" value={filters.minSlaap} onChange={e => setFilters(f => ({ ...f, minSlaap: e.target.value }))} />
               </div>
-              <div style={S.filterField}>
-                <label style={S.filterLabel}>Max. slaapplaatsen</label>
-                <input style={S.filterInput} type="number" placeholder="inf" value={filters.maxSlaap}
-                  onChange={e => setFilters(f => ({ ...f, maxSlaap: e.target.value }))} />
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Max. slaapplaatsen</label>
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="inf" value={filters.maxSlaap} onChange={e => setFilters(f => ({ ...f, maxSlaap: e.target.value }))} />
               </div>
             </div>
 
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Contactgegevens aanwezig</div>
-              <div style={S.filterCheckRow}>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftTelefoon} onChange={e => setFilters(f => ({ ...f, heeftTelefoon: e.target.checked }))} />
+            <div className="pt-2.5 mt-1 border-t border-yd-border">
+              <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-2">Contactgegevens aanwezig</div>
+              <div className="flex gap-4 items-center flex-wrap">
+                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                  <input type="checkbox" checked={filters.heeftTelefoon} onChange={e => setFilters(f => ({ ...f, heeftTelefoon: e.target.checked }))} className="rounded border-yd-border" />
                   Telefoon
                 </label>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftEmail} onChange={e => setFilters(f => ({ ...f, heeftEmail: e.target.checked }))} />
+                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                  <input type="checkbox" checked={filters.heeftEmail} onChange={e => setFilters(f => ({ ...f, heeftEmail: e.target.checked }))} className="rounded border-yd-border" />
                   E-mail
                 </label>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftWebsite} onChange={e => setFilters(f => ({ ...f, heeftWebsite: e.target.checked }))} />
+                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                  <input type="checkbox" checked={filters.heeftWebsite} onChange={e => setFilters(f => ({ ...f, heeftWebsite: e.target.checked }))} className="rounded border-yd-border" />
                   Website
                 </label>
               </div>
             </div>
 
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Belstatus</div>
-              <div style={S.filterCheckRow}>
+            <div className="pt-2.5 mt-1 border-t border-yd-border">
+              <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-2">Belstatus</div>
+              <div className="flex gap-4 items-center flex-wrap">
                 <FilterSelect
                   label=""
                   value={filters.belstatus}
@@ -1657,32 +1772,33 @@ export default function App() {
                 />
               </div>
             </div>
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 8, marginTop: 4 }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 4 }}>AI-signalen</div>
-              <div style={S.filterCheckRow}>
-                <label style={S.checkLabel}>
-                  <input type="checkbox" checked={filters.heeftAi} onChange={e => setFilters(f => ({ ...f, heeftAi: e.target.checked }))} />
+            <div className="pt-2 mt-1 border-t border-yd-border">
+              <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-1">AI-signalen</div>
+              <div className="flex gap-4 items-center flex-wrap">
+                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                  <input type="checkbox" checked={filters.heeftAi} onChange={e => setFilters(f => ({ ...f, heeftAi: e.target.checked }))} className="rounded border-yd-border" />
                   Alleen AI-gescand
                 </label>
-                <label style={S.checkLabel} title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
-                  <input type="checkbox" checked={filters.geenAgentuur} onChange={e => setFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} />
+                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer" title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
+                  <input type="checkbox" checked={filters.geenAgentuur} onChange={e => setFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} className="rounded border-yd-border" />
                   Geen agentuur/makelaar
                 </label>
               </div>
             </div>
 
-            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase" }}>Zichtbaarheid</div>
-              <label style={S.checkLabel}>
-                <input type="checkbox" checked={filters.toonVerborgen} onChange={e => setFilters(f => ({ ...f, toonVerborgen: e.target.checked }))} />
+            <div className="pt-2.5 mt-1 border-t border-yd-border flex items-center gap-4 flex-wrap">
+              <span className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Zichtbaarheid</span>
+              <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                <input type="checkbox" checked={filters.toonVerborgen} onChange={e => setFilters(f => ({ ...f, toonVerborgen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon verborgen
               </label>
-              <label style={S.checkLabel}>
-                <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} />
+              <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon afgewezen
               </label>
               <button
-                style={S.resetFiltersBtn}
+                type="button"
+                className="ml-auto text-xs text-yd-muted cursor-pointer underline hover:text-yd-black transition-colors"
                 onClick={() =>
                   setFilters({
                     zoek: "",
@@ -1712,46 +1828,55 @@ export default function App() {
         )}
       </div>
 
-      {error && <div style={S.errorBar}>! {error} - <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={() => laadPanden(1)}>opnieuw proberen</span></div>}
+      {error && (
+        <div className="bg-red-50 text-yd-red py-2 px-4 text-sm border-b border-red-200">
+          ! {error} — <span className="cursor-pointer underline" onClick={() => laadPanden(1)}>opnieuw proberen</span>
+        </div>
+      )}
 
-      {/* PANDENLIJST */}
-      <div className="yd-lijst" style={S.lijst}>
-        {loading && <div style={S.loadingMsg}>Panden ophalen uit Toerisme Vlaanderen...</div>}
+      {/* PANDENLIJST — same horizontal padding as filter bar */}
+      <div className="pt-5 px-4 md:px-8 max-w-[1400px] mx-auto">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 items-stretch">
+        {loading && <div className="text-center text-yd-muted py-6 text-sm">Panden ophalen uit Toerisme Vlaanderen...</div>}
 
         {displayMode === "table" && (
-          <div style={{ gridColumn: "1 / -1", width: "100%", maxWidth: "100%", overflowX: "auto", border: `1px solid ${T.border}`, borderRadius: 12, background: T.bgCard, marginTop: 12 }}>
-            <table style={{ width: "100%", minWidth: 800, borderCollapse: "collapse", fontSize: 13 }}>
+          <div className="col-span-full w-full max-w-full overflow-x-auto rounded-card border border-yd-border bg-white shadow-card mt-3">
+            <table className="w-full min-w-[800px] border-collapse text-sm">
               <thead>
-                <tr style={{ background: T.bgCardAlt, borderBottom: `2px solid ${T.border}` }}>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Naam</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Straat</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Stad</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Postcode</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Telefoon</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>E-mail</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Status</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Slaappl.</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Platform</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", fontWeight: 600, color: T.text }}>Agentuur</th>
+                <tr className="bg-yd-bg border-b-2 border-yd-border">
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Naam</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">
+                    <button type="button" onClick={() => setSorteer(s => s === "score" ? s : "score")} className="font-semibold text-yd-black hover:text-yd-red transition-colors underline-offset-2 hover:underline">Score</button>
+                  </th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Straat</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Stad</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Postcode</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Telefoon</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">E-mail</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Status</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Slaappl.</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Platform</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Agentuur</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Uitkomst</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Actie</th>
                 </tr>
               </thead>
               <tbody>
                 {zichtbaar.map((p, i) => {
                   const ai = getCardAi(p.id, p);
+                  const fullAi = enriched[p.id];
                   const platformLabels = [];
                   if (ai?.airbnb?.gevonden) platformLabels.push("Airbnb");
                   if (ai?.booking?.gevonden) platformLabels.push("Booking");
                   const platformStr = platformLabels.length ? platformLabels.join(", ") : "—";
-                  const agentuurStr = enriched[p.id]?.waarschuwingAgentuur ? "Ja" : "—";
+                  const agentuurStr = fullAi?.waarschuwingAgentuur ? "Ja" : "—";
+                  const rowOutcome = outcomes[p.id];
+                  const scoreNum = fullAi?.prioriteit != null ? String(Math.min(99, Math.max(0, fullAi.prioriteit * 10))).padStart(2, "0") : (fullAi?.score === "HEET" ? "85" : fullAi?.score === "WARM" ? "60" : fullAi?.score === "KOUD" ? "40" : null);
+                  const hasPhone = !!(p.phone || p.phone2 || p["contact-phone"] || p.telefoon || p.phone1 || (Array.isArray(p.phones) && p.phones.length > 0));
                   return (
                   <tr
                     key={p.id || i}
-                    className="yd-table-row"
-                    style={{
-                      borderBottom: `1px solid ${T.borderLight}`,
-                      cursor: "pointer",
-                      background: enriched[p.id]?.score === "HEET" ? T.orangePale : T.bgCard,
-                    }}
+                    className={`border-b border-yd-border cursor-pointer hover:bg-[#F8FAFC] transition-colors ${enriched[p.id]?.score === "HEET" ? "bg-amber-50/80" : "bg-white even:bg-yd-bg/50"}`}
                     onClick={() => {
                       setSelected(p);
                       setView("dossier");
@@ -1762,21 +1887,49 @@ export default function App() {
                         setEnrichingIds(s => new Set([...s, p.id]));
                         enrichProperty(p, portfolio)
                           .then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); })
-                          .catch(e => console.error("Verrijking mislukt:", e))
+                          .catch(() => {})
                           .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; }));
                       }
                     }}
                   >
-                    <td style={{ padding: "8px 12px", color: enriched[p.id]?.score === "HEET" ? T.orangeDark : T.text }}>{p.name || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.street || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.municipality || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.postalCode || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.phone || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.email || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.status || "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid }}>{p.slaapplaatsen ?? p.sleepPlaces ?? "—"}</td>
-                    <td style={{ padding: "8px 12px", color: T.textMid, fontSize: 11 }}>{platformStr}</td>
-                    <td style={{ padding: "8px 12px", color: enriched[p.id]?.waarschuwingAgentuur ? "#C2410C" : T.textLight, fontSize: 11 }}>{agentuurStr}</td>
+                    <td className="py-2 px-3">
+                      <button
+                        type="button"
+                        className="text-left w-full text-[#1A1A1A] font-semibold hover:underline focus:outline-none focus:underline"
+                        onClick={e => { e.stopPropagation(); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
+                      >
+                        {p.name || "—"}
+                      </button>
+                    </td>
+                    <td className="py-2 px-3">
+                      {scoreNum != null ? <span className="inline-flex rounded-[999px] bg-[#1A1A1A] text-white text-xs px-3 py-0.5 font-medium">{scoreNum}</span> : "—"}
+                    </td>
+                    <td className="py-2 px-3 text-yd-muted">{p.street || "—"}</td>
+                    <td className="py-2 px-3 text-yd-muted">{p.municipality || "—"}</td>
+                    <td className="py-2 px-3 text-yd-muted">{p.postalCode || "—"}</td>
+                    <td className="py-2 px-3">
+                      {(() => {
+                        const num = p.phone || p.phone2 || p["contact-phone"] || p.telefoon || p.phone1 || (Array.isArray(p.phones) && p.phones[0]) || "";
+                        return num ? <span className="text-[#1A1A1A] font-semibold">{num}</span> : <span className="text-[#E8231A]">—</span>;
+                      })()}
+                    </td>
+                    <td className="py-2 px-3 text-yd-muted">{p.email || "—"}</td>
+                    <td className="py-2 px-3 text-yd-muted">{p.status || "—"}</td>
+                    <td className="py-2 px-3 text-yd-muted">{p.slaapplaatsen ?? p.sleepPlaces ?? "—"}</td>
+                    <td className="py-2 px-3 text-yd-muted text-xs">{platformStr}</td>
+                    <td className={`py-2 px-3 text-xs ${enriched[p.id]?.waarschuwingAgentuur ? "text-orange-700 font-medium" : "text-yd-muted"}`}>{agentuurStr}</td>
+                    <td className="py-2 px-3">
+                      {rowOutcome && rowOutcome !== "none" && rowOutcome !== "verborgen" ? (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium text-white ${rowOutcome === "afgewezen" ? "bg-[#E8231A]/50" : rowOutcome === "callback" || rowOutcome === "terugbellen" ? "bg-[#EA580C]/50" : "bg-[#22C55E]/50"}`}>
+                          {rowOutcome === "afgewezen" ? "Afgewezen" : rowOutcome === "callback" || rowOutcome === "terugbellen" ? "Terugbellen" : "Interesse"}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                      {hasPhone ? (
+                        <a href={`tel:${p.phone || p.phone2 || p["contact-phone"] || p.telefoon || p.phone1 || (Array.isArray(p.phones) && p.phones[0]) || ""}`} className="inline-flex items-center rounded-[999px] bg-[#1A1A1A] text-white text-xs font-medium px-3 py-1 hover:opacity-90 no-underline" onClick={e => e.stopPropagation()}>Bel</a>
+                      ) : null}
+                    </td>
                   </tr>
                   );
                 })}
@@ -1787,27 +1940,24 @@ export default function App() {
 
         {displayMode !== "table" && zichtbaar.map((prop, idx) => {
           const ai = getCardAi(prop.id, prop);
-          const fullAi = enriched[prop.id]; // full enrichment (score, agentuur, poor site, fotoUrls)
-          const sc = fullAi?.score ? SCORES[fullAi.score] : null;
+          const fullAi = enriched[prop.id];
           const uitkomst = outcomes[prop.id];
           const isVerborgen = hidden.includes(prop.id);
           const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
           const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
-          const isAgency = fullAi?.waarschuwingAgentuur;
-          const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
-          const slechteReviews = fullAi?.slechteReviews;
-
           return (
-            <div
+            <PropertyCard
               key={prop.id}
-              className="kaart-hover"
-              style={{
-                ...S.kaart,
-                opacity: isVerborgen || uitkomst === "afgewezen" ? 0.45 : 1,
-                borderLeft: sc ? `4px solid ${sc.kleur}` : `4px solid ${T.border}`,
-                animation: `fadeUp 0.3s ease ${idx * 0.03}s both`,
-              }}
-              onClick={() => {
+              prop={prop}
+              fullAi={fullAi}
+              ai={ai}
+              outcome={uitkomst}
+              enriching={enrichingIds.has(prop.id)}
+              isVerborgen={isVerborgen}
+              heeftPortfolio={heeftPortfolio}
+              portfolioAantal={portfolioAantal}
+              uitkomstLabel={uitkomstLabel}
+              onCardClick={() => {
                 setSelected(prop);
                 setView("dossier");
                 if (!enriched[prop.id] && !enrichingIds.has(prop.id)) {
@@ -1817,157 +1967,73 @@ export default function App() {
                   setEnrichingIds(s => new Set([...s, prop.id]));
                   enrichProperty(prop, portfolio)
                     .then(result => { setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; }); })
-                    .catch(e => console.error("Verrijking mislukt:", e))
+                    .catch(() => {})
                     .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
                 }
               }}
-            >
-              {(() => {
-                const street = prop.street || prop["address-street"] || prop["straat"] || prop["thoroughfare"] || prop["streetAddress"] || "";
-                const city = prop.municipality || prop["municipality-name"] || prop["gemeente"] || prop["hoofdgemeente"] || prop["addressLocality"] || prop["locality"] || "";
-                const postalCode = prop.postalCode || prop["postal-code"] || prop["postcode"] || "";
-                const fullAddress = prop.fullAddress || prop["fullAddress"] || prop["locn:fullAddress"] || (typeof prop.address === "string" ? prop.address : "") || "";
-                const province = prop.province || prop["provincie"] || prop["Provincie"] || "";
-                const sleep = prop.sleepPlaces || prop["number-of-sleep-places"] || prop["slaapplaatsen"] || null;
-                const units = prop.units || prop["number-of-units"] || null;
-                const phones = [];
-                const addPhone = (v) => { if (v && !phones.includes(v)) phones.push(v); };
-                addPhone(prop.phone); addPhone(prop.phone2); addPhone(prop["contact-phone"]);
-                addPhone(prop["telefoon"]); addPhone(prop["phone1"]);
-                if (Array.isArray(prop.phones)) prop.phones.forEach(addPhone);
-
-                return (<>
-              <div style={S.kaartBody}>
-                {/* Header: name + score badge */}
-                <div style={S.kaartTop}>
-                  <div style={S.kaartNaamBlok}>
-                    <div style={S.kaartNaam}>{prop.name}</div>
-                    {/* Stack: address, date, type, amount – aligned under each other */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
-                      {(street || city || fullAddress) && (
-                        <div style={{ fontSize: 11, color: T.textMid, display: "flex", alignItems: "center", gap: 3, overflow: "hidden", minHeight: 18 }}>
-                          <span style={{ flexShrink: 0 }}>📍</span>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {[street, postalCode, city].filter(Boolean).join(", ") || fullAddress}
-                          </span>
-                        </div>
-                      )}
-                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
-                        <span style={{ flexShrink: 0 }}>🗓</span>
-                        <span>{prop.onlineSince ? new Date(prop.onlineSince).toLocaleDateString("nl-BE", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
-                        <span style={{ flexShrink: 0 }}>🏠</span>
-                        <span>{units > 1 ? `${units} units` : "1 unit"}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textLight, display: "flex", alignItems: "center", gap: 3, minHeight: 18 }}>
-                        <span style={{ flexShrink: 0 }}>🛏</span>
-                        <span>{sleep > 0 ? `${sleep} slaapplaatsen` : "—"}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
-                    {sc && <span style={{ ...S.scoreBadge, background: sc.pale, color: sc.kleur, border: `1px solid ${sc.border}` }}>{sc.emoji ? `${sc.emoji} ` : ""}{sc.label || fullAi.score}</span>}
-                    {enrichingIds.has(prop.id) && <span style={S.enrichingPill}>AI bezig…</span>}
-                    {fullAi && !enrichingIds.has(prop.id) && <span style={S.aiGescandPill}>AI gescand</span>}
-                    {isAgency && <span style={S.agentuurPill} title={fullAi.agentuurSignalen}>Makelaar/agentuur</span>}
-                    {poorWebsite && <span style={S.poorSitePill} title="Website slecht gebouwd – kans voor yourdomi">Slechte site</span>}
-                    {slechteReviews && <span style={S.poorReviewsPill} title="Negatieve of terugkerende klachten in reviews – kans voor yourdomi">Slechte reviews</span>}
-                  </div>
-                </div>
-
-                {/* Tags: status, portfolio, outcome (no per-card beheer suggestion) */}
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {prop.status && <span style={S.statusTag}>{prop.status}</span>}
-                  {heeftPortfolio && <span style={S.portfolioTag}>🏘 {portfolioAantal} panden</span>}
-                  {uitkomst && uitkomst !== "none" && <span style={{ ...S.uitkomstBadge, ...uitkomstStijl(uitkomst) }}>{uitkomstLabel(uitkomst)}</span>}
-                </div>
-
-                {/* Contact: phone(s), email, website — fixed structure so cards align with or without website */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 14, marginTop: "auto", borderTop: `1px solid ${T.borderLight}`, minHeight: 76 }}>
-                  {phones.length > 0 ? phones.map((tel, ti) => (
-                    <a key={ti} href={`tel:${tel}`} onClick={e => e.stopPropagation()}
-                      style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, textDecoration: "none" }}>
-                      <span style={{ flexShrink: 0 }}>📞</span>
-                      <span style={{ fontWeight: 500 }}>{tel}</span>
-                      {phones.length > 1 && <span style={{ fontSize: 9, color: T.textLight }}>#{ti+1}</span>}
-                    </a>
-                  )) : (prop.email || prop["contact-email"]) ? (
-                    <a
-                      href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(prop.email || prop["contact-email"])}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, textDecoration: "none" }}>
-                      <span>✉️</span>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{prop.email || prop["contact-email"]}</span>
-                    </a>
-                  ) : (
-                    <div style={{ fontSize: 11, color: T.textLight, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><span>📵</span> Geen contact</div>
-                  )}
-                  {(() => {
-                    const aiWebsite = fullAi?.directWebsite;
-                    const websiteWerkt = aiWebsite?.gevonden && aiWebsite?.werkt !== false && aiWebsite?.url;
-                    const rawWebsite = prop.website || prop["contact-website"] || prop["website"];
-                    if (aiWebsite && !websiteWerkt && !poorWebsite) return <div style={{ minHeight: 20 }} />;
-                    if (websiteWerkt) return (
-                      <a href={(aiWebsite.url || "").startsWith("http") ? aiWebsite.url : "https://" + aiWebsite.url}
-                        target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.green, textDecoration: "none" }}>
-                        <span>🌐</span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{(aiWebsite.url || "").replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                      </a>
-                    );
-                    if (rawWebsite) return (
-                      <a href={(rawWebsite || "").startsWith("http") ? rawWebsite : "https://" + rawWebsite}
-                        target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textLight, textDecoration: "none" }}>
-                        <span>🌐</span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{(rawWebsite || "").replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
-                        <span style={{ fontSize: 9, color: T.textLight }}>?</span>
-                      </a>
-                    );
-                    return <div style={{ minHeight: 20 }} />;
-                  })()}
-                </div>
-
-                {/* Platform pills (left) + bed count bottom right — use Boolean so we never render 0 when no platform found */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, paddingTop: 8, borderTop: `1px solid ${T.borderLight}` }}>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {(ai?.airbnb?.gevonden || ai?.booking?.gevonden || !!((fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length))) ? (
-                      <>
-                        {ai?.airbnb?.gevonden && <span style={S.platformPillAirbnb}>Airbnb</span>}
-                        {ai?.booking?.gevonden && <span style={S.platformPillBooking}>Booking</span>}
-                        {(fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length) ? <span style={S.fotoPill}>📷</span> : null}
-                      </>
-                    ) : null}
-                  </div>
-                  {sleep > 0 && <span style={{ fontSize: 11, color: T.textLight }}>🛏 {sleep}</span>}
-                </div>
-              </div>
-              </>);
-            })()}
-            </div>
+              onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
+              onOutcome={v => slaUitkomstOp(prop.id, v)}
+              onInteresseClick={(p) => setInteressePopupProp(p)}
+              animationStyle={{ animation: `fadeUp 0.3s ease ${idx * 0.03}s both` }}
+            />
           );
         })}
 
         {!loading && zichtbaar.length === 0 && (
-          <div style={S.leegMelding}>Geen panden gevonden met deze filters.</div>
+          <div className="text-center text-yd-muted py-10 text-sm">Geen panden gevonden met deze filters.</div>
         )}
+
+        {/* INTERESSE POPUP (from card) */}
+        {interessePopupProp && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50" onClick={() => setInteressePopupProp(null)}>
+            <div className="bg-white rounded-xl border border-[#EBEBEB] shadow-xl max-w-md w-full p-5 flex flex-col gap-3" onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-bold text-[#1A1A1A] font-nunito">{interessePopupProp.name}</h3>
+                <button type="button" className="text-[#888888] hover:text-[#1A1A1A] text-2xl leading-none p-1" onClick={() => setInteressePopupProp(null)} aria-label="Sluiten">&times;</button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <a href={buildGoogleMeetUrl(interessePopupProp, getCardAi(interessePopupProp.id, interessePopupProp), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Meeting plannen</a>
+                <a href={buildInternalDebriefUrl(interessePopupProp, getCardAi(interessePopupProp.id, interessePopupProp), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Intern debrief</a>
+                {!mondayActief ? (
+                  <button type="button" onClick={() => { setInteressePopupProp(null); setView("config"); }} className="w-full py-2.5 px-4 rounded-xl border border-dashed border-[#EBEBEB] text-[#888888] text-sm cursor-pointer hover:bg-[#FAFAFA] transition-colors">Monday koppelen</button>
+                ) : mondayStatus[interessePopupProp.id] === "ok" ? (
+                  <button type="button" disabled className="w-full py-2.5 px-4 rounded-xl bg-[#E5E7EB] text-[#9CA3AF] text-sm font-semibold cursor-default border border-[#EBEBEB]">In Monday</button>
+                ) : (
+                  <button type="button" className="w-full py-2.5 px-4 rounded-xl bg-[#E8231A] text-white text-sm font-bold border-none cursor-pointer hover:opacity-90 transition-opacity flex items-center justify-center gap-2" onClick={() => {
+                    const prop = interessePopupProp;
+                    const ai = enriched[prop.id];
+                    const outcome = outcomes[prop.id];
+                    const note = notes[prop.id] || "";
+                    const contactNaam = load("contactnamen", {})[prop.id] || prop.name;
+                    setMondaySyncing(s => new Set([...s, prop.id]));
+                    setMondayStatus(s => ({ ...s, [prop.id]: "bezig" }));
+                    syncMondayCRM(prop, ai, outcome, note, contactNaam, user?.username)
+                      .then(() => setMondayStatus(s => ({ ...s, [prop.id]: "ok" })))
+                      .catch(e => { setMondayStatus(s => ({ ...s, [prop.id]: "fout" })); setMondayFout(s => ({ ...s, [prop.id]: e.message || String(e) })); })
+                      .finally(() => setMondaySyncing(s => { const n = new Set(s); n.delete(prop.id); return n; }));
+                  }}>Push to Monday CRM</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        </div>
       </div>
 
       {/* PAGINERING */}
-      <div style={S.paginering}>
+      <div className="flex justify-between items-center py-4 px-4 md:px-8 max-w-[1400px] mx-auto border-t border-yd-border mt-1">
         <button
-          style={S.pagBtn}
+          type="button"
+          className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-yd-bg transition-colors duration-150"
           disabled={page <= 1}
           onClick={() => { const next = page - 1; setPage(next); laadPanden(next, filters); }}
-        >&laquo; Vorige</button>
-        <span style={{ color: T.textLight, fontSize: 12 }}>~{totalCount} panden</span>
+        >« Vorige</button>
+        <span className="text-xs text-yd-muted">~{totalCount} panden</span>
         <button
-          style={S.pagBtn}
+          type="button"
+          className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm hover:bg-yd-bg transition-colors duration-150"
           onClick={() => { const next = page + 1; setPage(next); laadPanden(next, filters); }}
-        >Volgende &raquo;</button>
+        >Volgende »</button>
       </div>
     </div>
   );
@@ -1996,49 +2062,48 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
   const portfolioIds = heeftPortfolio ? phoneGroups[property.phoneNorm].filter(id => id !== property.id) : [];
   const portfolioPanden = portfolioIds.map(id => properties.find(p => p.id === id)).filter(Boolean);
 
+  const sectionHeaderClass = "text-xs font-bold tracking-[0.1em] text-[#888888] uppercase mb-3";
   return (
-    <div style={S.dossierRoot}>
+    <div className="min-h-screen bg-[#FAFAFA] font-nunito text-yd-black max-w-[1400px] mx-auto px-4 md:px-8 relative">
       <style>{globalCSS}</style>
 
-      {/* TERUG + NAV */}
-      <div style={S.dossierNav}>
-        <button style={S.terugBtn} onClick={onTerug}>&laquo; Terug naar lijst</button>
-        <div style={S.navBtns}>
-          <button style={S.navBtn} onClick={onVorige} disabled={currentIdx <= 1}>&lsaquo;</button>
-          <span style={{ fontSize: 12, color: T.textLight }}>{currentIdx} / {total}</span>
-          <button style={S.navBtn} onClick={onVolgende} disabled={currentIdx >= total}>&rsaquo;</button>
+      {/* NAV: Terug + pagination */}
+      <div className="bg-white border-b border-[#EBEBEB] py-3 px-4 flex justify-between items-center sticky top-0 z-50">
+        <button type="button" className="bg-transparent border-none text-[#E8231A] cursor-pointer text-sm font-semibold hover:underline font-nunito" onClick={onTerug}>« Terug naar lijst</button>
+        <div className="flex items-center gap-1">
+          <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#EBEBEB] bg-[#FAFAFA] text-[#1A1A1A] disabled:opacity-50 cursor-pointer hover:bg-[#EBEBEB] transition-colors" onClick={onVorige} disabled={currentIdx <= 1}><ChevronLeft className="w-4 h-4" /></button>
+          <span className="text-sm text-[#888888] min-w-[4rem] text-right tabular-nums">{currentIdx} / {total}</span>
+          <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#EBEBEB] bg-[#FAFAFA] text-[#1A1A1A] disabled:opacity-50 cursor-pointer hover:bg-[#EBEBEB] transition-colors" onClick={onVolgende} disabled={currentIdx >= total}><ChevronRight className="w-4 h-4" /></button>
         </div>
       </div>
 
-      {/* INHOUD */}
-      <div style={S.dossierBody}>
+      <div className="overflow-y-auto pb-36">
 
-        {/* Pand kop */}
-        <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease both" }}>
-          <div style={S.pandKop}>
-            <div>
-              <h1 style={S.pandNaam}>{property.name}</h1>
-              <div style={S.pandAdres}>
+        {/* HEADER: name, address, status */}
+        <div className="pt-5 animate-[fadeUp_0.4s_ease_both]" style={{ animationName: "fadeUp" }}>
+          <div className="flex justify-between items-start gap-4 mb-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-nunito font-extrabold text-3xl text-[#1A1A1A] leading-tight mb-1">{property.name}</h1>
+              <div className="text-sm text-[#888888] leading-snug">
                 {[property.street, property.postalCode, property.municipality, property.province].filter(Boolean).join(", ")}
               </div>
             </div>
-            <div style={{ ...S.statusChip, background: property.status === "erkend" ? T.greenPale : T.orangePale, color: property.status === "erkend" ? T.green : T.orangeDark }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
+            <span className={`rounded-[999px] py-1.5 px-3 text-xs font-semibold flex-shrink-0 ${property.status === "erkend" ? "bg-[#22C55E] text-white" : "bg-[#E5E7EB] text-[#374151]"}`}>
               {(property.status || "aangemeld").toUpperCase()}
-            </div>
+            </span>
           </div>
 
-          {/* Stats */}
-          <div style={S.statsRij}>
+          {/* STATS BAR: white card, 4 cols, dividers — icon + value only */}
+          <div className="flex flex-wrap rounded-xl border border-[#EBEBEB] bg-white overflow-hidden">
             {[
-              ["🛏", property.sleepPlaces ? `${property.sleepPlaces} slaapplaatsen` : "Slaapplaatsen onbekend"],
-              ["🏠", property.units ? `${property.units} unit${property.units > 1 ? "s" : ""}` : "1 unit"],
-              ["*", property.starRating || "Geen sterbeoordeling"],
-              ["📋", property.registrationNumber?.slice(-8) || property.id.slice(-8)],
+              ["🛏", property.sleepPlaces ?? property.slaapplaatsen ?? "—"],
+              ["🏠", property.units ?? "1"],
+              ["*", property.starRating || "—"],
+              ["📋", property.registrationNumber?.slice(-8) || property.id?.slice(-8) || "—"],
             ].map(([icoon, val], i) => (
-              <div key={i} style={S.statItem}>
-                <span style={{ fontSize: 16 }}>{icoon}</span>
-                <span style={S.statTekst}>{val}</span>
+              <div key={i} className={`flex items-center gap-2 flex-1 min-w-[120px] py-3 px-4 ${i > 0 ? "border-l border-[#EBEBEB]" : ""}`}>
+                <span className="text-lg">{icoon}</span>
+                <span className="font-bold text-base text-[#1A1A1A] truncate">{val}</span>
               </div>
             ))}
           </div>
@@ -2046,24 +2111,23 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
         {/* PORTFOLIO BANNER */}
         {heeftPortfolio && (
-          <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.05s both" }}>
-            <div style={S.portfolioBanner}>
-              <div style={S.portfolioBannerKop}>
-                <span style={{ fontSize: 22 }}>🏘</span>
-                <div>
-                  <div style={S.portfolioTitel}>Portfolio eigenaar - {portfolioPanden.length + 1} panden</div>
-                  <div style={S.portfolioSub}>Hoge prioriteit - gebruik portfolio management hoek in openingszin</div>
+          <div className="pt-5 animate-[fadeUp_0.4s_ease_0.05s_both]" style={{ animationName: "fadeUp" }}>
+            <div className="bg-amber-50 border border-amber-200 rounded-card p-4">
+              <div className="flex items-start gap-2.5 mb-3">
+                <span className="text-xl">🏘</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-sm text-amber-800 mb-0.5">Portfolio eigenaar</div>
+                  <div className="text-xs text-amber-700">Hoge prioriteit - gebruik portfolio management hoek in openingszin</div>
                 </div>
-                <div style={S.portfolioBadge}>HOGE WAARDE</div>
+                <span className="bg-amber-500 text-white rounded px-2 py-0.5 text-[9px] font-bold tracking-wider whitespace-nowrap">HOGE WAARDE</span>
               </div>
-              <div style={S.portfolioLijst}>
+              <div className="flex flex-col gap-1.5">
                 {portfolioPanden.map(p => (
-                  <div key={p.id} className="portfolio-item-hover" style={S.portfolioItemKlikbaar}
-                    onClick={() => onSelectPand && onSelectPand(p)}>
-                    <span style={{ fontSize: 13 }}>📍</span>
-                    <span style={S.portfolioItemNaam}>{p.name}</span>
-                    <span style={S.portfolioItemGem}>{p.municipality}</span>
-                    <span style={S.portfolioItemArrow}>{"→"}</span>
+                  <div key={p.id} className="flex items-center gap-2 py-1.5 px-2.5 rounded-md bg-white/50 cursor-pointer hover:bg-amber-100/80 transition-colors" onClick={() => onSelectPand && onSelectPand(p)}>
+                    <MapPin className="w-3.5 h-3.5 text-yd-muted flex-shrink-0" />
+                    <span className="text-sm font-medium text-yd-black flex-1 truncate">{p.name}</span>
+                    <span className="text-xs text-yd-muted">{p.municipality}</span>
+                    <span className="text-score-interesse font-semibold text-sm">→</span>
                   </div>
                 ))}
               </div>
@@ -2071,37 +2135,120 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
           </div>
         )}
 
+        {/* CONTACTGEGEVENS */}
+        <div className="pt-6 animate-[fadeUp_0.4s_ease_0.05s_both]" style={{ animationName: "fadeUp" }}>
+          <div className={sectionHeaderClass}>Contactgegevens</div>
+          <div className="mb-3 py-2.5 px-3 bg-white rounded-xl border border-[#EBEBEB]">
+            <label className="block text-xs text-[#888888] mb-1.5">
+              Naam contactpersoon
+              <span className={ai?.waarschuwingAgentuur ? " text-yd-red italic" : " text-[#888888]"}>{ai?.waarschuwingAgentuur ? " ! mogelijk agentuur - vraag naar beslissingsnemer" : " - invullen tijdens gesprek"}</span>
+            </label>
+            <input
+              className="w-full bg-white border border-[#EBEBEB] rounded-xl py-2 px-3 text-sm text-[#1A1A1A] outline-none focus:ring-2 focus:ring-yd-red/30"
+              placeholder={ai?.waarschuwingAgentuur ? "Naam eigenaar / beslissingsnemer..." : "Voornaam Achternaam..."}
+              value={contactNaam}
+              onChange={e => onSaveContactNaam && onSaveContactNaam(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            {property.phone && (
+              <div className="flex items-center gap-2.5 py-2.5 px-3 bg-white rounded-xl border border-[#EBEBEB]">
+                <span className="text-sm flex-shrink-0">📞</span>
+                <span className="text-xs text-[#888888] w-20 flex-shrink-0">Mobiel</span>
+                <span className="text-sm font-medium truncate text-[#1A1A1A] min-w-0">{property.phone}</span>
+                <a href={`tel:${property.phone}`} className="text-sm font-bold text-[#E8231A] no-underline hover:underline cursor-pointer font-nunito flex-shrink-0 ml-1">Bel nu</a>
+              </div>
+            )}
+            {property.phone2 && <ContactRegel icoon="📞" label="Telefoon 2" val={property.phone2} href={`tel:${property.phone2}`} />}
+            {!property.phone && !property.phone2 && !property.email && <div className="text-xs text-[#888888] italic py-1">⏳ Contactgegevens worden opgehaald...</div>}
+            {property.email && <ContactRegel icoon="@" label="E-mail" val={property.email} href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(property.email)}`} />}
+            {property.website && <ContactRegel icoon="🌐" label="Website" val={property.website} href={property.website.startsWith("http") ? property.website : "https://" + property.website} />}
+            {property.street && <ContactRegel icoon="📍" label="Straat" val={`${property.street}${property.postalCode ? ", " + property.postalCode : ""}${property.municipality ? " " + property.municipality : ""}`} href={`https://maps.google.com/?q=${encodeURIComponent([property.street, property.postalCode, property.municipality].filter(Boolean).join(" "))}`} />}
+            <ContactRegel icoon="🔖" label="TV Register" val={property.registrationNumber?.slice(-12) || property.id?.slice(-12)} href={property.rawUrl} />
+          </div>
+        </div>
+
         {enriching && (
-          <div style={S.sectie}>
+          <div className="pt-5">
             <LaadSkeleton />
           </div>
         )}
         {!enriching && ai && (
           <div>
-            {/* SAMENGEVATTE VERKOOPINTELLIGENTIE (BOVENAAN) */}
-            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.05s both" }}>
-              <SectieTitel>🎯 Verkoopintelligentie</SectieTitel>
-              <div style={S.intelKaartBase}>
-                <div style={S.intelKaartTitel}>Samenvatting</div>
-                <p style={{ fontSize: 13, color: T.textMid, lineHeight: 1.6, margin: 0 }}>
+            {/* OMZET ANALYSE */}
+            {(ai.geschatMaandelijksInkomen || ai.potentieelMetYourDomi) && (
+              <div className="pt-6 animate-[fadeUp_0.4s_ease_0.05s_both]" style={{ animationName: "fadeUp" }}>
+                <div className={sectionHeaderClass}>Omzet analyse</div>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-stretch">
+                  <div className="bg-white border border-[#EBEBEB] rounded-xl p-5">
+                    <div className="text-xs text-[#888888] mb-1.5">Huidig (geschat)</div>
+                    <div className="text-2xl font-extrabold text-[#374151] mb-0.5">{ai.geschatMaandelijksInkomen || "-"}</div>
+                    <div className="text-xs text-[#888888] mb-1">per maand . {ai.geschatBezetting || "?"} bezet</div>
+                    {ai.inkomensNota && <div className="text-xs text-[#888888] leading-snug mt-1">{ai.inkomensNota}</div>}
+                  </div>
+                  {ai.potentieelMetYourDomi && (() => {
+                    const parseRevenue = (s) => {
+                      if (!s || typeof s !== "string") return null;
+                      const m = s.match(/[\d.,]+/);
+                      if (!m) return null;
+                      const num = parseInt(m[0].replace(/[.\s]/g, ""), 10);
+                      return Number.isFinite(num) ? num : null;
+                    };
+                    const huidigNum = parseRevenue(ai.geschatMaandelijksInkomen);
+                    const metNum = parseRevenue(ai.potentieelMetYourDomi);
+                    const pct = (huidigNum != null && metNum != null && huidigNum > 0)
+                      ? Math.round(((metNum - huidigNum) / huidigNum) * 100)
+                      : null;
+                    return (
+                      <>
+                        <div className="hidden md:flex flex-col items-center justify-center gap-1 py-2">
+                          {pct != null && (
+                            <span className="text-lg font-extrabold text-[#22C55E]">+{pct}%</span>
+                          )}
+                          <span className="text-xs text-[#888888]">revenue increase</span>
+                        </div>
+                        <div className="bg-[#F8FAFC] border-2 border-[#1A1A1A] rounded-xl p-5 relative">
+                          <span className="absolute top-0 right-0 bg-[#E8231A] text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-bl-lg">Aanbevolen</span>
+                          <div className="text-xs text-[#888888] mb-1.5">Met yourdomi.be</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-2xl font-extrabold text-[#1A1A1A]">{ai.potentieelMetYourDomi}</span>
+                            <TrendingUp className="w-6 h-6 text-[#22C55E] flex-shrink-0" aria-hidden />
+                          </div>
+                          {pct != null && <div className="text-sm font-semibold text-[#22C55E] mt-1 md:hidden">+{pct}% revenue increase</div>}
+                          <div className="text-xs text-[#888888] mb-1">per maand (prognose)</div>
+                          {ai.potentieelNota && <div className="text-xs text-[#374151] leading-snug">{ai.potentieelNota}</div>}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* VERKOOPINTELLIGENTIE */}
+            <div className="pt-6 animate-[fadeUp_0.4s_ease_0.08s_both]" style={{ animationName: "fadeUp" }}>
+              <div className={sectionHeaderClass}>Verkoopintelligentie</div>
+              <div className="bg-white border border-[#EBEBEB] rounded-xl p-5">
+                <div className="font-bold text-base text-[#1A1A1A] mb-2">Samenvatting</div>
+                <p className="text-sm text-[#374151] leading-relaxed m-0">
                   {[ai.scoreReden, ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
                 </p>
                 {(ai.locatieHighlights?.length || 0) > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {ai.locatieHighlights.map((h, i) => (
-                      <span key={i} style={S.tagGroen}>{h}</span>
+                      <span key={i} className="rounded-[999px] px-3 py-1 text-xs font-medium bg-[#F0FDF4] text-[#16A34A] border border-[#BBF7D0]">{h}</span>
                     ))}
                   </div>
                 )}
                 {(ai.zwaktes?.length || 0) > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {ai.zwaktes.map((z, i) => (
-                      <span key={i} style={S.tagOranje}>{z}</span>
+                      <span key={i} className="rounded-[999px] px-3 py-1 text-xs font-medium bg-[#FFF7ED] text-[#EA580C] border border-[#FED7AA]">{z}</span>
                     ))}
                   </div>
                 )}
                 {(ai.reviewThemes?.length || 0) > 0 && (
-                  <ul style={{ margin: 10, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
+                  <ul className="mt-3 ml-2.5 pl-4 text-sm text-[#374151] leading-relaxed list-disc">
                     {ai.reviewThemes.map((theme, i) => (
                       <li key={i}>{theme}</li>
                     ))}
@@ -2110,186 +2257,91 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             </div>
 
-            {/* AGENTUUR WAARSCHUWING */}
             {ai.waarschuwingAgentuur && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.08s both" }}>
-                <div style={S.agentuurWaarschuwing}>
-                  <span style={{ fontSize: 18 }}>!</span>
+              <div className="pt-6 animate-[fadeUp_0.4s_ease_0.08s_both]" style={{ animationName: "fadeUp" }}>
+                <div className="bg-orange-50 border border-orange-300 rounded-xl py-3 px-4 flex gap-3 items-start">
+                  <span className="text-lg text-orange-600 font-bold">!</span>
                   <div>
-                    <div style={S.agentuurTitel}>Mogelijk beheersbedrijf / agentuur</div>
-                    <div style={S.agentuurTekst}>{ai.agentuurSignalen || "Dit telefoonnummer of e-mailadres is mogelijk van een beheerskantoor, niet de eigenaar. Vraag altijd naar de eigenaar of beslissingsnemer."}</div>
+                    <div className="font-bold text-sm text-orange-800 mb-0.5">Mogelijk beheersbedrijf / agentuur</div>
+                    <div className="text-xs text-orange-700 leading-relaxed">{ai.agentuurSignalen || "Dit telefoonnummer of e-mailadres is mogelijk van een beheerskantoor, niet de eigenaar. Vraag altijd naar de eigenaar of beslissingsnemer."}</div>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* (scoreReden en openingszin worden nu samengevat in de verkoopintelligentie-sectie) */}
-
             {/* CONSULTIEVE VRAGEN */}
             {ai.consultieveVragen?.length > 0 && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.12s both" }}>
-                <SectieTitel>🎯 Consultieve vragen <span style={{ color: T.orange, fontWeight: 600 }}>- laat hen zichzelf verkopen</span></SectieTitel>
-                <div style={S.vragenLijst}>
+              <div className="pt-6 animate-[fadeUp_0.4s_ease_0.12s_both]" style={{ animationName: "fadeUp" }}>
+                <div className={sectionHeaderClass}>Consultieve vragen <span className="text-[#E8231A] font-semibold normal-case">- laat hen zichzelf verkopen</span></div>
+                <div className="bg-white border border-[#EBEBEB] rounded-xl overflow-hidden">
                   {ai.consultieveVragen.map((v, i) => (
-                    <div key={i} style={S.vraagRegel}>
-                      <div style={S.vraagNr}>{i + 1}</div>
-                      <div style={S.vraagTekst}>{v}</div>
+                    <div key={i} className={`flex gap-3 items-start py-3 px-4 ${i < ai.consultieveVragen.length - 1 ? "border-b border-[#EBEBEB]" : ""}`}>
+                      <span className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                      <p className="text-sm text-[#374151] leading-relaxed m-0">{v}</p>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* ONLINE PLATFORMS */}
-            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.2s both" }}>
-              <SectieTitel>🌐 Online aanwezigheid</SectieTitel>
-              <div style={S.platformsKolom}>
-                {/* Airbnb */}
-                <PlatformKaart
-                  naam="Airbnb" emoji="🏠" kleur="#FF5A5F"
-                  data={ai.airbnb}
-                  velden={[
-                    ai.airbnb?.beoordeling && `* ${ai.airbnb.beoordeling}`,
-                    ai.airbnb?.aantalReviews && `💬 ${ai.airbnb.aantalReviews} reviews`,
-                    ai.airbnb?.prijsPerNacht && `💶 ${ai.airbnb.prijsPerNacht}/nacht`,
-                    ai.airbnb?.bezettingsgraad && `📅 ${ai.airbnb.bezettingsgraad} bezet`,
-                  ].filter(Boolean)}
-                />
-                {/* Booking.com */}
-                <PlatformKaart
-                  naam="Booking.com" emoji="🔵" kleur="#003580"
-                  data={ai.booking}
-                  velden={[
-                    ai.booking?.beoordeling && `* ${ai.booking.beoordeling}/10`,
-                    ai.booking?.aantalReviews && `💬 ${ai.booking.aantalReviews} reviews`,
-                    ai.booking?.prijsPerNacht && `💶 ${ai.booking.prijsPerNacht}/nacht`,
-                  ].filter(Boolean)}
-                />
-                {/* Direct website */}
-                <PlatformKaart
-                  naam="Eigen website" emoji="🌍" kleur={T.green}
-                  data={ai.directWebsite}
-                  velden={[
-                    ai.directWebsite?.url && `🔗 ${ai.directWebsite.url?.replace(/https?:\/\//, "").slice(0,35)}`,
-                  ].filter(Boolean)}
-                />
+            {/* ONLINE AANWEZIGHEID */}
+            <div className="pt-6 animate-[fadeUp_0.4s_ease_0.2s_both]" style={{ animationName: "fadeUp" }}>
+              <div className={sectionHeaderClass}>Online aanwezigheid</div>
+              <div className="flex flex-col gap-0 overflow-hidden rounded-xl border border-[#EBEBEB] bg-white">
+                {[
+                  { naam: "Airbnb", data: ai.airbnb, url: ai.airbnb?.url },
+                  { naam: "Booking.com", data: ai.booking, url: ai.booking?.url },
+                  { naam: "Eigen website", data: ai.directWebsite, url: ai.directWebsite?.url },
+                ].map(({ naam, data, url }) => {
+                  const gevonden = data?.gevonden;
+                  return (
+                    <div key={naam} className="flex items-center justify-between gap-3 py-3 px-4 border-b border-[#EBEBEB] last:border-b-0">
+                      <span className="font-medium text-[#1A1A1A]">{naam}</span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-sm font-semibold ${gevonden ? "text-[#22C55E]" : "text-[#9CA3AF]"}`}>{gevonden ? "Gevonden" : "Niet gevonden"}</span>
+                        {gevonden && url && <a href={url.startsWith("http") ? url : "https://" + url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-[#E8231A] no-underline hover:underline">Bekijk →</a>}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            {/* OMZET VERGELIJKING */}
-            {(ai.geschatMaandelijksInkomen || ai.potentieelMetYourDomi) && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.25s both" }}>
-                <SectieTitel>💰 Omzet analyse</SectieTitel>
-                <div style={S.omzetGrid}>
-                  <div style={S.omzetKaartNu}>
-                    <div style={S.omzetLabelKlein}>Huidig (geschat)</div>
-                    <div style={{ ...S.omzetBedrag, color: T.textMid }}>{ai.geschatMaandelijksInkomen || "-"}</div>
-                    <div style={S.omzetSubLabel}>per maand . {ai.geschatBezetting || "?"} bezet</div>
-                    {ai.inkomensNota && <div style={S.omzetNota}>{ai.inkomensNota}</div>}
-                  </div>
-                  {ai.potentieelMetYourDomi && (
-                    <div style={S.omzetKaartYD}>
-                      <div style={S.omzetLabelKlein}>Met yourdomi.be</div>
-                      <div style={{ ...S.omzetBedrag, color: T.green }}>{ai.potentieelMetYourDomi}</div>
-                      <div style={S.omzetSubLabel}>per maand (prognose)</div>
-                      {ai.potentieelNota && <div style={{ ...S.omzetNota, color: T.greenLight }}>{ai.potentieelNota}</div>}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
           </div>
         )}
 
-        {/* CONTACT */}
-        <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.45s both" }}>
-          <SectieTitel>📋 Contactgegevens</SectieTitel>
-
-          {/* Contactnaam invullen voor Monday CRM */}
-          <div style={S.contactNaamBlok}>
-            <label style={S.contactNaamLabel}>
-              Naam contactpersoon
-              <span style={S.contactNaamHint}>{ai?.waarschuwingAgentuur ? " ! mogelijk agentuur - vraag naar beslissingsnemer" : " - invullen tijdens gesprek"}</span>
-            </label>
-            <input
-              style={S.contactNaamInput}
-              placeholder={ai?.waarschuwingAgentuur ? "Naam eigenaar / beslissingsnemer..." : "Voornaam Achternaam..."}
-              value={contactNaam}
-              onChange={e => onSaveContactNaam && onSaveContactNaam(e.target.value)}
-            />
-          </div>
-
-          <div style={S.contactKolom}>
-            {property.phone && <ContactRegel icoon="📞" label="Telefoon" val={property.phone} href={`tel:${property.phone}`} />}
-            {property.phone2 && <ContactRegel icoon="📞" label="Telefoon 2" val={property.phone2} href={`tel:${property.phone2}`} />}
-            {!property.phone && !property.email && (
-              <div style={{ fontSize: 12, color: T.textLight, fontStyle: "italic", padding: "4px 0" }}>
-                ⏳ Contactgegevens worden opgehaald...
+        {/* SNEL OPZOEKEN */}
+        {(() => {
+          const links = buildZoekLinks(property);
+          return (
+            <div className="pt-6 animate-[fadeUp_0.4s_ease_0.45s_both]" style={{ animationName: "fadeUp" }}>
+              <div className={sectionHeaderClass}>Snel opzoeken</div>
+              <div className="flex flex-wrap gap-2">
+                <a href={links.google} target="_blank" rel="noreferrer" className="rounded-[999px] py-2 px-4 text-sm font-medium bg-white border border-[#EBEBEB] text-[#1A1A1A] no-underline hover:bg-[#FAFAFA] transition-colors">Google</a>
+                <a href={links.airbnb} target="_blank" rel="noreferrer" className="rounded-[999px] py-2 px-4 text-sm font-medium bg-[#FF5A5F] text-white no-underline hover:opacity-90 transition-opacity">Airbnb</a>
+                <a href={links.booking} target="_blank" rel="noreferrer" className="rounded-[999px] py-2 px-4 text-sm font-medium bg-[#003580] text-white no-underline hover:opacity-90 transition-opacity">Booking</a>
+                <a href={links.googleImg} target="_blank" rel="noreferrer" className="rounded-[999px] py-2 px-4 text-sm font-medium bg-white border border-[#EBEBEB] text-[#1A1A1A] no-underline hover:bg-[#FAFAFA] transition-colors">Fotos</a>
+                <a href={links.maps} target="_blank" rel="noreferrer" className="rounded-[999px] py-2 px-4 text-sm font-medium bg-white border border-[#EBEBEB] text-[#1A1A1A] no-underline hover:bg-[#FAFAFA] transition-colors">Maps</a>
               </div>
-            )}
-            {property.email && (
-              <ContactRegel
-                icoon="@"
-                label="E-mail"
-                val={property.email}
-                href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(property.email)}`}
-              />
-            )}
-            {property.website && <ContactRegel icoon="🌐" label="Website" val={property.website} href={property.website.startsWith("http") ? property.website : "https://" + property.website} />}
-            {property.street && <ContactRegel icoon="📍" label="Straat" val={`${property.street}${property.postalCode ? ", " + property.postalCode : ""}${property.municipality ? " " + property.municipality : ""}`} href={`https://maps.google.com/?q=${encodeURIComponent([property.street, property.postalCode, property.municipality].filter(Boolean).join(" "))}`} />}
-            <ContactRegel icoon="🔖" label="TV Register" val={property.registrationNumber?.slice(-12) || property.id.slice(-12)} href={property.rawUrl} />
-          </div>
+            </div>
+          );
+        })()}
 
-          {/* ZOEKLINKS */}
-          {(() => {
-            const links = buildZoekLinks(property);
-            return (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 10, letterSpacing: 2, color: T.textLight, textTransform: "uppercase", marginBottom: 8, fontWeight: 600 }}>🔍 Snel opzoeken</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {[
-                    { label: "Google", href: links.google, color: T.green },
-                    { label: "📷 Fotos", href: links.googleImg, color: "#8B5CF6" },
-                    { label: "Airbnb", href: links.airbnb, color: "#FF5A5F" },
-                    { label: "Booking", href: links.booking, color: "#003580" },
-                    { label: "📍 Maps", href: links.maps, color: T.textMid },
-                  ].map(({ label, href, color }) => (
-                    <a key={label} href={href} target="_blank" rel="noreferrer"
-                      style={{ fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 8,
-                        background: color + "15", color: color, border: `1px solid ${color}30`,
-                        textDecoration: "none", fontFamily: "inherit", cursor: "pointer" }}>
-                      {label}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+        {/* JUSTCALL NOTITIES — hidden until JustCall connected */}
+        {false && (
+        <div className="pt-6 pb-4 animate-[fadeUp_0.4s_ease_0.48s_both]" style={{ animationName: "fadeUp" }}>
+          <div className={sectionHeaderClass}>JustCall – AI notities</div>
+          <p className="text-xs text-[#888888] mb-2">Plak het transcript van je JustCall-belgesprek (of ander beltranscript). Koppeling met JustCall volgt later. AI vult daarna automatisch uitkomst, contactnaam en belnotities in.</p>
+          <MeetTranscriptNotetaker onFilled={(result) => { if (result.note) onNote(result.note); if (result.outcome) onOutcome(result.outcome); if (result.contactNaam && onSaveContactNaam) onSaveContactNaam(result.contactNaam); }} />
         </div>
+        )}
 
-        {/* JUSTCALL-TRANSCRIPT → AI NOTITIES (koppeling later) */}
-        <div style={{ ...S.sectie, paddingBottom: 16, animation: "fadeUp 0.4s ease 0.48s both" }}>
-          <SectieTitel>📞 JustCall – AI notities</SectieTitel>
-          <p style={{ fontSize: 11, color: T.textLight, marginBottom: 8 }}>
-            Plak het transcript van je JustCall-belgesprek (of ander beltranscript). Koppeling met JustCall volgt later. AI vult daarna automatisch uitkomst, contactnaam en belnotities in.
-          </p>
-          <MeetTranscriptNotetaker
-            onFilled={(result) => {
-              if (result.note) onNote(result.note);
-              if (result.outcome) onOutcome(result.outcome);
-              if (result.contactNaam && onSaveContactNaam) onSaveContactNaam(result.contactNaam);
-            }}
-          />
-        </div>
-
-        {/* NOTITIES */}
-        <div style={{ ...S.sectie, paddingBottom: 20, animation: "fadeUp 0.4s ease 0.5s both" }}>
-          <SectieTitel>📝 Belnotities</SectieTitel>
+        {/* BELNOTITIES */}
+        <div className="pt-6 pb-8 animate-[fadeUp_0.4s_ease_0.5s_both]" style={{ animationName: "fadeUp" }}>
+          <div className={sectionHeaderClass}>Belnotities</div>
           <textarea
             ref={noteRef}
-            className="notitie-veld"
-            style={S.notitieVeld}
+            className="w-full bg-white border border-[#EBEBEB] rounded-xl p-4 text-sm text-[#1A1A1A] resize-none leading-relaxed outline-none focus:ring-2 focus:ring-yd-red/30 font-nunito"
             placeholder="Voeg notities toe voor dit pand... (automatisch opgeslagen)"
             value={note}
             onChange={e => onNote(e.target.value)}
@@ -2299,79 +2351,40 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
       </div>
 
       {/* ACTIE BAR */}
-      <div style={S.actieBar}>
-        <div style={S.actieBarInner}>
-          {/* Monday sync status */}
-          {mondayActief && (
-            <div style={S.mondayStatusRij}>
-              {mondaySyncing && <span style={S.mondaySyncBezig}>(~) Syncing Monday...</span>}
-              {!mondaySyncing && mondayStatus === "ok" && <span style={S.mondaySyncOk}>v Monday bijgewerkt</span>}
-              {!mondaySyncing && mondayStatus === "fout" && (<div style={{ ...S.mondaySyncFout, flexDirection: "column", alignItems: "flex-start", gap: 2 }}><span>! Monday fout - <button onClick={onOpenConfig} style={S.mondayFoutBtn}>check config</button></span>{mondayFoutMsg && <span style={{ fontSize: 10, color: T.red, opacity: 0.8, wordBreak: "break-all" }}>{mondayFoutMsg}</span>}</div>)}
-              {!mondaySyncing && !mondayStatus && <span style={S.mondaySyncLabel}>Monday actief</span>}
-            </div>
-          )}
-          {!mondayActief && (
-            <button onClick={onOpenConfig} style={S.mondaySetupBtn}> Monday koppelen</button>
-          )}
-
-          <div style={S.actieBtns}>
-            <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnAfwijzen, ...(outcome === "afgewezen" ? { background: T.red, color: "#fff", border: `1px solid ${T.red}` } : {}) }}
-            onClick={() => { onAfgewezen(); }}>
-              <span>x</span> Afwijzen
-            </button>
-            <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnCallback, ...(outcome === "callback" ? { background: T.orange, color: "#fff", border: `1px solid ${T.orange}` } : {}) }}
-            onClick={() => {
-              onOutcome(outcome === "callback" ? null : "callback");
-            }}>
-              <span>(~)</span> Terugbellen
-            </button>
-            <button className="actie-btn" style={{ ...S.actieBtn, ...S.btnGebeld, ...(outcome === "gebeld_interesse" ? { background: T.green, color: "#fff", border: `1px solid ${T.green}` } : {}) }}
-              onClick={() => onOutcome(outcome === "gebeld_interesse" ? null : "gebeld_interesse")}>
-              <span>v</span> Interesse
-            </button>
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#EBEBEB] py-4 px-4 z-50 safe-area-pb">
+        <div className="max-w-[1400px] mx-auto flex flex-col gap-3">
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onAfgewezen()}>Afwijzen</button>
+            <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onOutcome(outcome === "callback" ? null : "callback")}>Terugbellen</button>
+            <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "gebeld_interesse" ? "bg-[#22C55E] text-[#1A1A1A] border-[#22C55E] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onOutcome(outcome === "gebeld_interesse" ? null : "gebeld_interesse")}>✓ Interesse</button>
           </div>
 
-          {/* Actieknoppen bij interesse */}
           {outcome === "gebeld_interesse" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-              {/* Row 1: Meet buttons */}
-              <div style={{ display: "flex", gap: 6 }}>
-                <a
-                  href={buildGoogleMeetUrl(property, ai, note)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ ...S.teamsMeetingBtn, flex: 1, textAlign: "center" }}
-                  className="actie-btn"
-                  title="Plan een kennismakingsgesprek met de eigenaar"
-                >
-                  📅 Met eigenaar
-                </a>
-                <a
-                  href={buildInternalDebriefUrl(property, ai, note)}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ ...S.teamsMeetingBtn, flex: 1, textAlign: "center", background: "#f0f4ff", color: "#3451b2", border: "1px solid #c7d2fe" }}
-                  className="actie-btn"
-                  title="Plan intern debriefgesprek met team"
-                >
-                  🏠 Intern debrief
-                </a>
+            <>
+              <div className="flex gap-2 flex-wrap">
+                <a href={buildGoogleMeetUrl(property, ai, note)} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Meeting plannen</a>
+                <a href={buildInternalDebriefUrl(property, ai, note)} target="_blank" rel="noreferrer" className="flex-1 min-w-0 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Intern debrief</a>
               </div>
-              {/* Row 2: Push to CRM */}
-              <button
-                className="actie-btn"
-                style={{ ...S.teamsMeetingBtn, width: "100%", background: mondayStatus === "ok" ? "#00854d" : "#0073ea", cursor: "pointer", border: "none", justifyContent: "center" }}
-                onClick={() => {
-                  if (!mondayActief) { onOpenConfig(); return; }
-                  onPushMonday && onPushMonday();
-                }}
-              >
-                {mondaySyncing ? "⏳ Bezig..." : mondayStatus === "ok" ? "✓ In Monday CRM" : "📋 Push to Monday CRM"}
-              </button>
-            </div>
+              {mondaySyncing && <span className="text-xs text-[#888888]">(~) Syncing Monday...</span>}
+              {!mondayActief ? (
+                <button type="button" onClick={onOpenConfig} className="w-full py-2.5 px-4 rounded-xl border border-dashed border-[#EBEBEB] text-[#888888] text-sm cursor-pointer hover:bg-[#FAFAFA] transition-colors">Monday koppelen</button>
+              ) : mondayStatus === "ok" ? (
+                <button type="button" disabled className="w-full py-2.5 px-4 rounded-xl bg-[#E5E7EB] text-[#9CA3AF] text-sm font-semibold cursor-default border border-[#EBEBEB]">✓ In Monday</button>
+              ) : (
+                <button type="button" className="w-full py-2.5 px-4 rounded-xl bg-[#E8231A] text-white text-sm font-bold border-none cursor-pointer hover:opacity-90 transition-opacity flex items-center justify-center gap-2" onClick={() => onPushMonday && onPushMonday()}>
+                  Push to Monday CRM
+                </button>
+              )}
+              {mondayStatus === "fout" && mondayFoutMsg && (
+                <div className="text-xs text-yd-red flex items-center gap-1">
+                  <button type="button" onClick={onOpenConfig} className="underline">Config</button>
+                  <span className="opacity-80 truncate">{mondayFoutMsg}</span>
+                </div>
+              )}
+            </>
           )}
 
-          <button style={S.verbergBtn} onClick={onVerberg}>Pand verbergen uit lijst</button>
+          <button type="button" className="text-xs text-[#888888] cursor-pointer underline hover:text-[#1A1A1A] transition-colors" onClick={onVerberg}>Pand verbergen uit lijst</button>
         </div>
       </div>
     </div>
@@ -2380,38 +2393,38 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
 // --- HULP COMPONENTEN ---------------------------------------------------------
 function SectieTitel({ children }) {
-  return <div style={{ fontSize: 11, letterSpacing: 2, color: T.textLight, textTransform: "uppercase", marginBottom: 12, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontWeight: 600 }}>{children}</div>;
+  return <div className="text-[11px] uppercase tracking-wider text-yd-muted font-semibold mb-3">{children}</div>;
 }
 function IntelKaart({ titel, tekst }) {
   return (
-    <div style={S.intelKaartBase}>
-      <div style={S.intelKaartTitel}>{titel}</div>
-      <p style={S.intelKaartTekst}>{tekst}</p>
+    <div className="bg-white border border-yd-border rounded-card p-3 shadow-card">
+      <div className="font-bold text-sm text-yd-black mb-1">{titel}</div>
+      <p className="text-sm text-yd-muted leading-relaxed m-0">{tekst}</p>
     </div>
   );
 }
 function ContactRegel({ icoon, label, val, href }) {
   return (
-    <a href={href} target="_blank" rel="noreferrer" style={S.contactRegel} className="contact-hover">
-      <span style={{ fontSize: 14, flexShrink: 0 }}>{icoon}</span>
-      <span style={S.contactLabel}>{label}</span>
-      <span style={S.contactVal}>{val}</span>
+    <a href={href} target="_blank" rel="noreferrer" className="flex items-center gap-2.5 py-2.5 px-3 bg-white rounded-xl border border-[#EBEBEB] no-underline text-[#1A1A1A] hover:bg-[#FAFAFA] transition-colors">
+      <span className="text-sm flex-shrink-0">{icoon}</span>
+      <span className="text-xs text-[#888888] w-20 flex-shrink-0">{label}</span>
+      <span className="text-sm font-medium truncate">{val}</span>
     </a>
   );
 }
 function Stat({ label, val, accent }) {
   return (
-    <div style={S.headerStat}>
-      <div style={{ ...S.headerStatVal, color: accent ? T.orange : T.green }}>{val}</div>
-      <div style={S.headerStatLabel}>{label}</div>
+    <div className="flex flex-col items-center">
+      <span className={`text-xl font-extrabold ${accent ? "text-score-heet" : "text-yd-black"}`}>{val}</span>
+      <span className="text-xs text-[#888888] tracking-wide">{label}</span>
     </div>
   );
 }
 function FilterSelect({ label, value, onChange, options }) {
   return (
-    <div style={S.filterField}>
-      <label style={S.filterLabel}>{label}</label>
-      <select style={S.filterInput} value={value} onChange={e => onChange(e.target.value)}>
+    <div className="flex flex-col gap-1">
+      {label ? <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">{label}</label> : null}
+      <select className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" value={value} onChange={e => onChange(e.target.value)}>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
     </div>
@@ -2420,26 +2433,14 @@ function FilterSelect({ label, value, onChange, options }) {
 function PlatformKaart({ naam, emoji, kleur, data, velden }) {
   const gevonden = data?.gevonden;
   return (
-    <div style={{
-      ...S.platformKaartBase,
-      borderLeft: `3px solid ${gevonden ? kleur : T.border}`,
-      opacity: gevonden ? 1 : 0.55,
-    }}>
-      <div style={S.platformKopRij}>
-        <span style={{ fontSize: 16 }}>{emoji}</span>
-        <span style={{ ...S.platformNaam, color: gevonden ? kleur : T.textLight }}>{naam}</span>
-        <span style={{ ...S.platformStatus, background: gevonden ? kleur + "18" : T.bgCardAlt, color: gevonden ? kleur : T.textLight }}>
-          {gevonden ? "v Gevonden" : "Niet gevonden"}
-        </span>
-        {gevonden && data?.url && (
-          <a href={data.url} target="_blank" rel="noreferrer" style={S.platformLinkBtn}>Bekijk →</a>
-        )}
+    <div className="bg-white border border-yd-border rounded-card p-2.5 shadow-card border-l-4 opacity-90" style={{ borderLeftColor: gevonden ? kleur : "#EBEBEB", opacity: gevonden ? 1 : 0.55 }}>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">{emoji}</span>
+        <span className="font-bold text-sm flex-1" style={{ color: gevonden ? kleur : undefined }}>{naam}</span>
+        <span className="text-[10px] rounded-full py-0.5 px-2 font-semibold" style={{ background: gevonden ? kleur + "18" : "#FAFAFA", color: gevonden ? kleur : "#888888" }}>{gevonden ? "✓ Gevonden" : "Niet gevonden"}</span>
+        {gevonden && data?.url && <a href={data.url} target="_blank" rel="noreferrer" className="text-xs font-semibold whitespace-nowrap" style={{ color: kleur }}>Bekijk →</a>}
       </div>
-      {gevonden && velden.length > 0 && (
-        <div style={S.platformStatRij}>
-          {velden.map((v, i) => <span key={i} style={S.platformStat}>{v}</span>)}
-        </div>
-      )}
+      {gevonden && velden.length > 0 && <div className="flex flex-wrap gap-2 pl-6">{velden.map((v, i) => <span key={i} className="text-xs text-yd-muted bg-yd-bg rounded px-1.5 py-0.5">{v}</span>)}</div>}
     </div>
   );
 }
@@ -2469,104 +2470,85 @@ function ConfigView({ cfg, onSave, onTerug }) {
   const alKlaar = !!(dealsBoardId && apiKey);
 
   return (
-    <div style={S.root}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; }`}</style>
-      <div style={S.cfgHeader}>
-        <button onClick={onTerug} style={S.terugBtn}>&laquo; Terug</button>
-        <span style={S.cfgTitel}>Integraties & Instellingen</span>
+    <div className="min-h-screen bg-yd-bg font-nunito text-yd-black max-w-[1400px] mx-auto px-4 box-border overflow-x-hidden">
+      <div className="bg-white border-b border-yd-border py-3.5 px-5 flex items-center gap-4 sticky top-0 z-50">
+        <button type="button" onClick={onTerug} className="bg-transparent border-none text-yd-red cursor-pointer text-sm font-medium hover:underline">« Terug</button>
+        <span className="font-bold text-lg text-yd-black">Integraties & Instellingen</span>
       </div>
 
-      <div style={S.cfgBody}>
+      <div className="py-5 px-4 flex flex-col gap-4 max-w-[600px] mx-auto">
 
-        {/* MONDAY ONGOING DEALS */}
-        <div style={S.cfgSectie}>
-          <div style={S.cfgSectieKop}>
-            <span style={{ fontSize: 22 }}>📋</span>
-            <div style={{ flex: 1 }}>
-              <div style={S.cfgSectieNaam}>Monday.com - Ongoing Deals</div>
-              <div style={S.cfgSectieDesc}>
-                Claude AI leest de belnotities en bepaalt automatisch welke velden in Monday worden ingevuld — geen handmatige kolom-koppeling nodig.
-              </div>
+        <div className="bg-white rounded-card p-4 shadow-card border border-yd-border">
+          <div className="flex gap-3.5 items-start mb-4">
+            <span className="text-xl">📋</span>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-sm text-yd-black mb-0.5">Monday.com - Ongoing Deals</div>
+              <div className="text-xs text-yd-muted leading-relaxed">Claude AI leest de belnotities en bepaalt automatisch welke velden in Monday worden ingevuld — geen handmatige kolom-koppeling nodig.</div>
             </div>
-            {alKlaar && <span style={S.cfgActiefBadge}>v Actief</span>}
+            {alKlaar && <span className="text-xs font-bold bg-emerald-100 text-score-interesse rounded-btn py-0.5 px-2 whitespace-nowrap">✓ Actief</span>}
           </div>
 
-          {/* Stap 1 - Token */}
-          <div style={S.cfgVeld}>
-            <label style={S.cfgLabel}>
-              API Token&nbsp;
-              <a href="https://support.monday.com/hc/en-us/articles/360005144659" target="_blank" rel="noreferrer" style={{ color: T.greenLight, fontSize: 10 }}>waar vind ik dit? →</a>
+          <div className="mb-3">
+            <label className="block text-[11px] uppercase tracking-wider text-yd-muted mb-1.5">
+              API Token <a href="https://support.monday.com/hc/en-us/articles/360005144659" target="_blank" rel="noreferrer" className="text-score-interesse text-[10px]">waar vind ik dit? →</a>
             </label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input style={S.cfgInput} type="password" placeholder="eyJhbGci..." value={apiKey} onChange={e => setApiKey(e.target.value)} />
-              <button style={S.cfgTestBtn} onClick={verbinden} disabled={loadingBoards || !apiKey}>
-                {loadingBoards ? "..." : "Verbinden"}
-              </button>
+            <div className="flex gap-2">
+              <input className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-btn py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="password" placeholder="eyJhbGci..." value={apiKey} onChange={e => setApiKey(e.target.value)} />
+              <button type="button" className="rounded-btn py-2 px-4 bg-emerald-50 border border-emerald-200 text-score-interesse font-semibold text-sm cursor-pointer whitespace-nowrap disabled:opacity-50" onClick={verbinden} disabled={loadingBoards || !apiKey}>{loadingBoards ? "..." : "Verbinden"}</button>
             </div>
-            {testMsg && <div style={{ ...S.cfgMsg, color: testMsg.ok ? T.green : T.red, marginTop: 6 }}>{testMsg.tekst}</div>}
+            {testMsg && <div className={`text-xs mt-1.5 ${testMsg.ok ? "text-score-interesse" : "text-yd-red"}`}>{testMsg.tekst}</div>}
           </div>
 
-          {/* Stap 2 - Board selecteren */}
           {boards.length > 0 && (
-            <div style={S.cfgVeld}>
-              <label style={S.cfgLabel}>Selecteer je Ongoing Deals board</label>
-              <select style={S.cfgInput} value={dealsBoardId} onChange={e => setDealsBoardId(e.target.value)}>
+            <div className="mb-3">
+              <label className="block text-[11px] uppercase tracking-wider text-yd-muted mb-1.5">Selecteer je Ongoing Deals board</label>
+              <select className="w-full bg-yd-bg border border-yd-border rounded-btn py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" value={dealsBoardId} onChange={e => setDealsBoardId(e.target.value)}>
                 <option value="">- selecteer board -</option>
                 {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
           )}
 
-          {/* AI info */}
           {alKlaar && (
-            <div style={{ background: T.greenPale, border: `1px solid ${T.greenLight}40`, borderRadius: 8, padding: "10px 14px", marginTop: 8, fontSize: 12, color: T.green }}>
+            <div className="bg-emerald-50 border border-emerald-200/60 rounded-lg py-2.5 px-3.5 mt-2 text-xs text-score-interesse">
               ✨ <strong>Volledig automatisch</strong> — Claude AI leest je board kolommen en bepaalt zelf wat er ingevuld wordt op basis van de belnotities. Geen configuratie nodig.
-              <div style={{ marginTop: 6, color: T.textMid, fontSize: 11 }}>
-                Nieuwe leads landen in de groep <strong>"New - to be confirmed"</strong> · Stage, Next step en datum worden automatisch bepaald uit de notities
-              </div>
+              <div className="mt-1.5 text-yd-muted text-[11px]">Nieuwe leads landen in de groep <strong>"New - to be confirmed"</strong> · Stage, Next step en datum worden automatisch bepaald uit de notities</div>
             </div>
           )}
 
-          {/* Samenvatting als klaar */}
           {alKlaar && (
-            <div style={{ ...S.cfgKlaarBlok, marginTop: 12 }}>
-              <div style={S.cfgKlaarRij}>
-                <span style={{ fontSize: 16 }}>📋</span>
-                <span style={{ fontSize: 13, color: T.text }}>
-                  Board: <strong>{boards.find(b => b.id === dealsBoardId)?.name || dealsBoardId}</strong>
-                </span>
-                <a href={`https://yourdomi.monday.com/boards/${dealsBoardId}`} target="_blank" rel="noreferrer" style={{ color: T.greenLight, fontSize: 11 }}>Bekijk →</a>
+            <div className="bg-emerald-50 rounded-btn py-3 px-3.5 border border-emerald-200/50 mt-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-base">📋</span>
+                <span className="text-sm text-yd-black">Board: <strong>{boards.find(b => b.id === dealsBoardId)?.name || dealsBoardId}</strong></span>
+                <a href={`https://yourdomi.monday.com/boards/${dealsBoardId}`} target="_blank" rel="noreferrer" className="text-score-interesse text-xs font-semibold ml-auto">Bekijk →</a>
               </div>
             </div>
           )}
         </div>
 
-        {/* TEAMS */}
-        <div style={S.cfgSectie}>
-          <div style={S.cfgSectieKop}>
-            <span style={{ fontSize: 22 }}>📅</span>
-            <div>
-              <div style={S.cfgSectieNaam}>JustCall</div>
-              <div style={S.cfgSectieDesc}>Bij "Interesse" verschijnt een knop - Google Agenda opent met onderwerp en pandinfo al ingevuld. Geen configuratie nodig.</div>
+        <div className="bg-white rounded-card p-4 shadow-card border border-yd-border">
+          <div className="flex gap-3.5 items-start">
+            <span className="text-xl">📅</span>
+            <div className="flex-1">
+              <div className="font-bold text-sm text-yd-black mb-0.5">JustCall</div>
+              <div className="text-xs text-yd-muted leading-relaxed">Bij "Interesse" verschijnt een knop - Google Agenda opent met onderwerp en pandinfo al ingevuld. Geen configuratie nodig.</div>
             </div>
-            <span style={S.cfgActiefBadge}>v Actief</span>
+            <span className="text-xs font-bold bg-emerald-100 text-score-interesse rounded-btn py-0.5 px-2">✓ Actief</span>
           </div>
         </div>
 
-        {/* JUSTCALL */}
-        <div style={{ ...S.cfgSectie, opacity: 0.55 }}>
-          <div style={S.cfgSectieKop}>
-            <span style={{ fontSize: 22 }}>📞</span>
-            <div>
-              <div style={S.cfgSectieNaam}>JustCall&nbsp;<span style={{ fontSize: 10, background: T.orangePale, color: T.orange, borderRadius: 4, padding: "2px 6px" }}>BINNENKORT</span></div>
-              <div style={S.cfgSectieDesc}>Direct bellen vanuit de app + automatische call analyse en transcriptie</div>
+        <div className="bg-white rounded-card p-4 shadow-card border border-yd-border opacity-55">
+          <div className="flex gap-3.5 items-start">
+            <span className="text-xl">📞</span>
+            <div className="flex-1">
+              <div className="font-bold text-sm text-yd-black mb-0.5">JustCall <span className="text-[10px] bg-amber-100 text-amber-700 rounded px-1.5 py-0.5">BINNENKORT</span></div>
+              <div className="text-xs text-yd-muted leading-relaxed">Direct bellen vanuit de app + automatische call analyse en transcriptie</div>
             </div>
           </div>
         </div>
 
-        <button style={S.cfgOpslaanBtn} onClick={() => onSave({ apiKey, dealsBoardId })}>
-          Instellingen opslaan
-        </button>
+        <button type="button" className="rounded-btn py-3 px-6 bg-yd-black text-white font-bold text-sm border-0 cursor-pointer hover:bg-[#333] transition-colors duration-150 mt-1" onClick={() => onSave({ apiKey, dealsBoardId })}>Instellingen opslaan</button>
       </div>
     </div>
   );
@@ -2574,13 +2556,11 @@ function ConfigView({ cfg, onSave, onTerug }) {
 
 function LaadSkeleton() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {[80, 120, 60, 100].map((w, i) => (
-        <div key={i} style={{ height: i % 2 === 0 ? 14 : 70, width: `${w}%`, borderRadius: 8, background: T.border, animation: "shimmer 1.5s infinite", backgroundImage: `linear-gradient(90deg, ${T.border} 25%, ${T.bgCardAlt} 50%, ${T.border} 75%)`, backgroundSize: "200% 100%" }} />
+        <div key={i} className="rounded-lg bg-yd-border animate-pulse" style={{ height: i % 2 === 0 ? 14 : 70, width: `${w}%` }} />
       ))}
-      <div style={{ textAlign: "center", color: T.textLight, fontSize: 11, letterSpacing: 2, marginTop: 8, animation: "pulse 1.5s ease infinite" }}>
-        AI ANALYSEERT DIT PAND...
-      </div>
+      <div className="text-center text-yd-muted text-xs tracking-wider mt-2 animate-pulse">AI ANALYSEERT DIT PAND...</div>
     </div>
   );
 }
@@ -2598,35 +2578,16 @@ function uitkomstStijl(u) {
   }[u] || {};
 }
 
-// --- GLOBALE CSS --------------------------------------------------------------
+// --- GLOBALE CSS (fadeUp + scrollbar + responsive) ---------------------------
 const globalCSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: ${T.bg}; overflow-x: hidden; margin: 0; padding: 0; }
   *, *::before, *::after { box-sizing: border-box; }
+  html, body { overflow-x: hidden; }
   ::-webkit-scrollbar { width: 5px; }
-  ::-webkit-scrollbar-track { background: ${T.bg}; }
-  ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 3px; }
+  ::-webkit-scrollbar-track { background: #FAFAFA; }
+  ::-webkit-scrollbar-thumb { background: #EBEBEB; border-radius: 3px; }
   @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes pulse { 0%,100% { opacity:0.5; } 50% { opacity:1; } }
-  @keyframes shimmer { from { background-position:-200% 0; } to { background-position:200% 0; } }
-  .kaart-hover { cursor: pointer; }
-  .kaart-hover:hover {
-    transform: translateY(-6px) scale(1.01);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.04), 0 12px 28px rgba(15,23,42,0.1), 0 24px 48px rgba(15,23,42,0.08) !important;
-    border-color: rgba(200,155,60,0.25) !important;
-  }
-  .kaart-hover:active { transform: translateY(-3px) scale(1.005); }
-  .yd-table-row:hover { background: rgba(45,92,78,0.06) !important; }
-  .actie-btn { transition: all 0.2s ease !important; }
-  .actie-btn:hover { transform: translateY(-2px); }
-  .notitie-veld:focus { outline: none; border-color: ${T.greenLight} !important; box-shadow: 0 0 0 3px ${T.greenPale}; }
-  .img-dot { transition: all 0.2s; cursor: pointer; }
-  .contact-hover { transition: background 0.15s; }
-  .contact-hover:hover { background: ${T.greenPale} !important; }
-  .portfolio-item-hover:hover { background: ${T.greenPale} !important; }
 
-  /* ── RESPONSIVE ─────────────────────────────────────── */
   @media (max-width: 900px) {
     .yd-filter-grid { grid-template-columns: 1fr 1fr !important; }
     .yd-lijst { grid-template-columns: 1fr !important; }
@@ -2643,241 +2604,3 @@ const globalCSS = `
   }
 `;
 
-// --- STYLES -------------------------------------------------------------------
-const S = {
-  // Agentuur waarschuwing
-  agentuurWaarschuwing: { background: "#FFF7ED", border: "1px solid #F97316", borderRadius: 10, padding: "12px 14px", display: "flex", gap: 12, alignItems: "flex-start" },
-  agentuurTitel: { fontSize: 13, fontWeight: 700, color: "#C2410C", marginBottom: 3 },
-  agentuurTekst: { fontSize: 12, color: "#9A3412", lineHeight: 1.5 },
-  // Consultieve vragen
-  vragenLijst: { display: "flex", flexDirection: "column", gap: 6 },
-  vraagRegel: { display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 12px", background: T.bgCard, borderRadius: 8, border: `1px solid ${T.border}` },
-  vraagNr: { minWidth: 22, height: 22, borderRadius: "50%", background: T.orange, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 },
-  vraagTekst: { fontSize: 13, color: T.text, lineHeight: 1.5 },
-  // Portfolio clickable item
-  portfolioItemKlikbaar: { display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s" },
-  portfolioItemArrow: { marginLeft: "auto", color: T.greenLight, fontSize: 13, fontWeight: 600 },
-  // Platform pills in lijst kaart
-  platformPillAirbnb: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FF5A5F18", color: "#FF5A5F", fontWeight: 600, border: "1px solid #FF5A5F40" },
-  platformPillBooking: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#00358018", color: "#003580", fontWeight: 600, border: "1px solid #00358040" },
-  platformPillSite: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: T.greenPale, color: T.green, fontWeight: 600, border: `1px solid ${T.greenLight}40` },
-  fotoPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}` },
-  agentuurPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FFF7ED", color: "#C2410C", fontWeight: 600, border: "1px solid #F9731640", cursor: "help" },
-  poorSitePill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FEF3C7", color: "#B45309", fontWeight: 600, border: "1px solid #F59E0B40", cursor: "help" },
-  poorReviewsPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FEF9C3", color: "#A16207", fontWeight: 600, border: "1px solid #EAB30840", cursor: "help" },
-  // Config view
-  cfgHeader: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, position: "sticky", top: 0, zIndex: 50 },
-  cfgTitel: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 18, fontWeight: 700, color: T.green },
-  cfgBody: { padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16, maxWidth: 600, margin: "0 auto" },
-  cfgSectie: { background: T.bgCard, borderRadius: 14, padding: "18px 16px", boxShadow: T.shadow, border: `1px solid ${T.border}` },
-  cfgSectieKop: { display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 16 },
-  cfgSectieNaam: { fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 3 },
-  cfgSectieDesc: { fontSize: 12, color: T.textMid, lineHeight: 1.5 },
-  cfgVeld: { marginBottom: 12 },
-  cfgLabel: { display: "block", fontSize: 11, color: T.textLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 },
-  cfgInput: { width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 13, outline: "none" },
-  cfgTestBtn: { background: T.greenPale, border: `1px solid ${T.greenLight}40`, color: T.green, borderRadius: 8, padding: "9px 16px", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" },
-  cfgMsg: { fontSize: 12, marginTop: 6 },
-  cfgKolommen: { marginTop: 12 },
-  cfgKolomGrid: { display: "flex", flexDirection: "column", gap: 6 },
-  cfgKolomRij: { display: "grid", gridTemplateColumns: "140px 1fr", alignItems: "center", gap: 8 },
-  cfgKolomLabel: { fontSize: 12, color: T.textMid },
-  cfgKolomSelect: { background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 8px", color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none" },
-  cfgOpslaanBtn: { background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "13px 24px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", marginTop: 4 },
-  cfgSubtitel: { fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 8, marginTop: 4 },
-  cfgSubHint: { fontSize: 11, color: T.textLight, fontWeight: 400 },
-  cfgActiefBadge: { fontSize: 11, background: T.greenPale, color: T.green, borderRadius: 10, padding: "3px 8px", fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" },
-  cfgSetupBlok: { background: T.bgCardAlt, borderRadius: 10, padding: "14px", border: `1px solid ${T.border}`, marginTop: 8 },
-  cfgSetupKop: { display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 12 },
-  cfgBoardPreview: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 },
-  cfgBoardItem: { display: "flex", gap: 10, alignItems: "flex-start", background: T.bgCard, borderRadius: 8, padding: "10px 12px", border: `1px solid ${T.borderLight}` },
-  cfgMaakAanBtn: { width: "100%", background: T.green, color: "#fff", border: "none", borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 },
-  cfgKlaarBlok: { background: T.greenPale, borderRadius: 10, padding: "12px 14px", border: `1px solid ${T.greenLight}30`, marginTop: 8, display: "flex", flexDirection: "column", gap: 8 },
-  cfgKlaarRij: { display: "flex", alignItems: "center", gap: 8 },
-  cfgWijzigBtn: { background: "none", border: `1px solid ${T.border}`, borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: 11, color: T.textLight, alignSelf: "flex-start", marginTop: 2 },
-  // Contact naam input in dossier
-  contactNaamBlok: { marginBottom: 12, padding: "10px 12px", background: T.bgCardAlt, borderRadius: 8, border: `1px solid ${T.border}` },
-  contactNaamLabel: { display: "block", fontSize: 11, color: T.textLight, letterSpacing: 0.5, marginBottom: 6 },
-  contactNaamHint: { color: T.orange, fontStyle: "italic" },
-  contactNaamInput: { width: "100%", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 6, padding: "7px 10px", color: T.text, fontFamily: "inherit", fontSize: 13, outline: "none" },
-  // Header config button
-  cfgBtn: { display: "flex", alignItems: "center", gap: 5, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 },
-  cfgActief: { color: T.green, fontWeight: 600, fontSize: 11 },
-  cfgInactief: { color: T.textLight, fontSize: 11 },
-  // Monday status bar in action bar
-  mondayStatusRij: { display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 11 },
-  mondaySyncBezig: { color: T.textLight, display: "flex", alignItems: "center", gap: 4 },
-  mondaySyncOk: { color: T.green, fontWeight: 600 },
-  mondaySyncFout: { color: T.red, display: "flex", alignItems: "center", gap: 4 },
-  mondayFoutBtn: { background: "none", border: "none", color: T.red, textDecoration: "underline", cursor: "pointer", fontFamily: "inherit", fontSize: 11, padding: 0 },
-  mondaySyncLabel: { color: T.textLight },
-  mondaySetupBtn: { background: "none", border: `1px dashed ${T.border}`, color: T.textLight, borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 11 },
-  // Teams meeting button
-  teamsMeetingBtn: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#1a73e8", color: "#fff", borderRadius: 10, padding: "11px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", width: "100%", marginTop: 6, transition: "all 0.2s" },
-  // Root
-  root: { background: T.bg, minHeight: "100vh", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 12px", boxSizing: "border-box", overflowX: "hidden" },
-  // Header
-  header: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 50, boxShadow: T.shadow, overflow: "hidden" },
-  headerInner: { padding: "14px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1400, margin: "0 auto" },
-  brand: { display: "flex", alignItems: "baseline", gap: 2 },
-  brandName: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 20, fontWeight: 900, color: T.green },
-  brandDot: { color: T.orange, fontSize: 24, fontWeight: 900, lineHeight: 1 },
-  brandSub: { fontSize: 9, color: T.textLight, letterSpacing: 3, marginLeft: 6 },
-  headerStats: { display: "flex", gap: 20 },
-  headerStat: { textAlign: "center" },
-  enrichProgBlok: { display: "flex", flexDirection: "column", gap: 3, minWidth: 70 },
-  enrichProgLabel: { fontSize: 9, color: T.textLight, letterSpacing: 1, textAlign: "right" },
-  headerStatVal: { fontSize: 18, fontWeight: 700 },
-  headerStatLabel: { fontSize: 10, color: T.textLight, letterSpacing: 0.5 },
-  // Filter bar
-  filterBar: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 57, zIndex: 40, overflow: "hidden" },
-  filterInner: { padding: "10px 0", display: "flex", gap: 6, alignItems: "center", minWidth: 0, width: "100%", boxSizing: "border-box" },
-  zoekInput: { flex: "1 1 0", minWidth: 0, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", color: T.text, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 13, outline: "none" },
-  filterToggleBtn: { background: T.greenPale, border: `1px solid ${T.greenLight}30`, color: T.green, borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" },
-  refreshBtn: { background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 14 },
-  filterPanel: { padding: "12px 16px 16px", borderTop: `1px solid ${T.borderLight}`, background: T.bgCardAlt },
-  filterGrid: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 10 },
-  filterField: { display: "flex", flexDirection: "column", gap: 4 },
-  filterLabel: { fontSize: 10, color: T.textLight, letterSpacing: 1, textTransform: "uppercase" },
-  filterInput: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 10px", color: T.text, fontFamily: "inherit", fontSize: 12, outline: "none" },
-  filterCheckRow: { display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" },
-  checkLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, cursor: "pointer" },
-  resetFiltersBtn: { marginLeft: "auto", background: "transparent", border: "none", color: T.textLight, fontSize: 12, cursor: "pointer", textDecoration: "underline" },
-  // Error
-  demoBanner: { background: '#FFF8E6', color: '#8a6a10', border: '1px solid #e8c84a50', borderBottom: '1px solid #e8c84a50', padding: '8px 16px', fontSize: 12, lineHeight: 1.5 },
-  errorBar: { background: T.redPale, color: T.red, padding: '8px 16px', fontSize: 12, borderBottom: `1px solid ${T.red}30` },
-  // Lijst
-  lijst: { padding: "20px 0 0", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 20, alignItems: "stretch" },
-  loadingMsg: { textAlign: "center", color: T.textLight, padding: 24, fontSize: 13 },
-  leegMelding: { textAlign: "center", color: T.textLight, padding: 40, fontSize: 13 },
-  kaart: {
-    background: T.bgCard,
-    borderRadius: 16,
-    padding: 0,
-    boxShadow: T.shadowCard,
-    cursor: "pointer",
-    border: `1px solid ${T.borderLight}`,
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-    transition: "transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease",
-    position: "relative",
-  },
-  kaartThumb: { width: "100%", height: 120, background: T.bgCardAlt, objectFit: "cover", flexShrink: 0 },
-  kaartBody: { padding: "20px 22px 22px", flex: 1, display: "flex", flexDirection: "column", gap: 16 },
-  kaartTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, marginBottom: 4 },
-  kaartNaamBlok: { flex: 1, minWidth: 0 },
-  kaartNaam: { fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.3, letterSpacing: "-0.02em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
-  kaartAdres: { fontSize: 13, color: T.textLight },
-  kaartRechts: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 },
-  scoreBadge: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "5px 12px", letterSpacing: 0.6, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" },
-  enrichingPill: { fontSize: 10, borderRadius: 999, padding: "3px 10px", background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, textTransform: "uppercase", letterSpacing: 0.8, animation: "pulse 1.2s ease-in-out infinite", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" },
-  aiGescandPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#D1FAE5", color: "#047857", fontWeight: 600, border: "1px solid #10B98140", cursor: "default" },
-  kaartBottom: { display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap", marginTop: "auto", paddingTop: 8 },
-  statusTag: { fontSize: 11, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 11px", letterSpacing: 0.4, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
-  portfolioTag: { fontSize: 11, background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, borderRadius: 999, padding: "4px 11px", fontWeight: 600, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" },
-  contactTag: { fontSize: 11, color: T.textLight },
-  uitkomstBadge: { fontSize: 10, borderRadius: 6, padding: "3px 8px", fontWeight: 500, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
-  contractTag: { fontSize: 10, borderRadius: 4, padding: "2px 7px", fontWeight: 600, marginLeft: "auto" },
-  // Paginering
-  paginering: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 24px", borderTop: `1px solid ${T.border}`, marginTop: 4 },
-  pagBtn: { background: T.bgCard, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 },
-  // DOSSIER
-  dossierRoot: { background: T.bg, minHeight: "100vh", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 24px", position: "relative" },
-  dossierNav: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 },
-  terugBtn: { background: "transparent", border: "none", color: T.green, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 500 },
-  navBtns: { display: "flex", alignItems: "center", gap: 10 },
-  navBtn: { background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 6, width: 28, height: 28, cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" },
-  // Hero
-  dossierHero: { position: "relative", height: 340, background: T.bgCardAlt, overflow: "hidden", borderRadius: "0 0 16px 16px" },
-  heroImg: { width: "100%", height: "100%", objectFit: "cover" },
-  heroGradient: { position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(240,237,230,0) 0%, rgba(240,237,230,0.7) 100%)" },
-  heroPlaceholder: { width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: `repeating-linear-gradient(45deg, ${T.bgCardAlt} 0px, ${T.bgCardAlt} 10px, ${T.bg} 10px, ${T.bg} 20px)` },
-  heroBadge: { position: "absolute", top: 14, right: 14, padding: "5px 12px", borderRadius: 16, fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "#fff", boxShadow: "0 2px 8px rgba(0,0,0,0.2)" },
-  heroArrowL: { position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.8)", border: "none", color: T.text, fontSize: 22, width: 32, height: 32, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
-  heroArrowR: { position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "rgba(255,255,255,0.8)", border: "none", color: T.text, fontSize: 22, width: 32, height: 32, borderRadius: "50%", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" },
-  heroDots: { position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 5, alignItems: "center" },
-  // Dossier body
-  dossierBody: { overflowY: "auto", padding: "0 0 140px" },
-  dossierGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 32px", alignItems: "start" },
-  dossierColLeft: { minWidth: 0 },
-  dossierColRight: { minWidth: 0 },
-  sectie: { padding: "20px 20px 0" },
-  pandKop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 12 },
-  pandNaam: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 28, fontWeight: 900, color: T.text, lineHeight: 1.2, marginBottom: 4 },
-  pandAdres: { fontSize: 12, color: T.textLight, lineHeight: 1.4 },
-  statusChip: { display: "flex", alignItems: "center", gap: 5, borderRadius: 10, padding: "4px 10px", fontSize: 10, letterSpacing: 1, flexShrink: 0, fontWeight: 600 },
-  statsRij: { display: "flex", flexWrap: "wrap", gap: 6, background: T.bgCardAlt, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px" },
-  statItem: { display: "flex", alignItems: "center", gap: 5, flex: "1 1 130px" },
-  statTekst: { fontSize: 12, color: T.textMid },
-  // Portfolio banner
-  portfolioBanner: { background: T.orangePale, border: `1px solid ${T.orange}40`, borderRadius: 12, padding: 16 },
-  portfolioBannerKop: { display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 },
-  portfolioTitel: { fontSize: 14, fontWeight: 700, color: T.orangeDark, marginBottom: 3 },
-  portfolioSub: { fontSize: 12, color: T.orange },
-  portfolioBadge: { marginLeft: "auto", background: T.orange, color: "#fff", borderRadius: 5, padding: "3px 8px", fontSize: 9, letterSpacing: 2, fontWeight: 700, whiteSpace: "nowrap" },
-  portfolioLijst: { display: "flex", flexDirection: "column", gap: 6 },
-  portfolioItem: { display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.5)", borderRadius: 6, padding: "6px 10px" },
-  portfolioItemNaam: { fontSize: 13, fontWeight: 500, color: T.text, flex: 1 },
-  portfolioItemGem: { fontSize: 11, color: T.textLight },
-  // Opening
-  openingsCard: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 12, padding: "18px 18px 18px 24px", position: "relative", overflow: "hidden", boxShadow: T.shadow },
-  aanhalingsteken: { position: "absolute", top: 0, left: 10, fontSize: 60, color: T.greenPale, fontFamily: "Georgia, 'Times New Roman', serif", lineHeight: 1, userSelect: "none" },
-  openingsTekst: { fontSize: 15, lineHeight: 1.7, color: T.text, fontStyle: "italic", position: "relative", zIndex: 1 },
-  // Contract
-  contractGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 },
-  contractKaart: { borderRadius: 10, padding: "12px 12px 14px", position: "relative", textAlign: "center" },
-  contractPct: { fontSize: 22, fontWeight: 900, fontFamily: "Georgia, 'Times New Roman', serif", marginBottom: 2 },
-  contractLabel: { fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 3 },
-  contractDesc: { fontSize: 10, color: T.textLight, lineHeight: 1.4 },
-  contractAanbevolen: { position: "absolute", top: -1, right: -1, color: "#fff", fontSize: 9, padding: "3px 7px", borderRadius: "0 9px 0 6px", letterSpacing: 1, fontWeight: 700 },
-  contractUitleg: { fontSize: 12, color: T.textMid, lineHeight: 1.6, fontStyle: "italic" },
-  // Platforms
-  platformsKolom: { display: "flex", flexDirection: "column", gap: 6 },
-  platformKaartBase: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px", boxShadow: T.shadow },
-  platformKopRij: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 },
-  platformNaam: { fontSize: 13, fontWeight: 700, flex: 1 },
-  platformStatus: { fontSize: 10, borderRadius: 10, padding: "2px 8px", fontWeight: 600, letterSpacing: 0.3 },
-  platformLinkBtn: { fontSize: 11, color: T.greenLight, textDecoration: "none", fontWeight: 600, whiteSpace: "nowrap" },
-  platformStatRij: { display: "flex", flexWrap: "wrap", gap: 8, paddingLeft: 24 },
-  platformStat: { fontSize: 12, color: T.textMid, background: T.bgCardAlt, borderRadius: 4, padding: "2px 6px" },
-  // Omzet grid
-  omzetGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
-  omzetKaartNu: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", boxShadow: T.shadow },
-  omzetKaartYD: { background: T.greenPale, border: `1px solid ${T.greenLight}50`, borderRadius: 12, padding: "14px 16px" },
-  omzetLabelKlein: { fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.textLight, marginBottom: 6 },
-  omzetBedrag: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 22, fontWeight: 900, marginBottom: 2 },
-  omzetSubLabel: { fontSize: 11, color: T.textLight, marginBottom: 4 },
-  omzetNota: { fontSize: 11, color: T.textLight, lineHeight: 1.4, marginTop: 4 },
-  // Intel
-  intelKolom: { display: "flex", flexDirection: "column", gap: 8 },
-  intelKaartBase: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", boxShadow: T.shadow },
-  intelKaartTitel: { fontSize: 10, color: T.textLight, letterSpacing: 2, textTransform: "uppercase", marginBottom: 6 },
-  intelKaartTekst: { fontSize: 13, color: T.textMid, lineHeight: 1.6 },
-  // Tags
-  tagRij: { display: "flex", flexWrap: "wrap", gap: 6 },
-  tagOranje: { fontSize: 11, background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, borderRadius: 16, padding: "4px 10px" },
-  tagGroen: { fontSize: 11, background: T.greenPale, color: T.green, border: `1px solid ${T.greenLight}40`, borderRadius: 16, padding: "4px 10px" },
-  // Gespreksonderwerpen
-  onderwerpenLijst: { display: "flex", flexDirection: "column", gap: 8 },
-  onderwerpRegel: { display: "flex", alignItems: "flex-start", gap: 10, background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", boxShadow: T.shadow },
-  onderwerpNr: { width: 22, height: 22, background: T.greenPale, color: T.green, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 },
-  onderwerpTekst: { fontSize: 13, color: T.textMid, lineHeight: 1.5 },
-  // Contact
-  contactKolom: { display: "flex", flexDirection: "column", gap: 6 },
-  contactRegel: { display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 8, textDecoration: "none", boxShadow: T.shadow },
-  contactLabel: { fontSize: 11, color: T.textLight, letterSpacing: 1, textTransform: "uppercase", width: 80, flexShrink: 0 },
-  contactVal: { fontSize: 13, color: T.green, flex: 1 },
-  // Notities
-  notitieVeld: { width: "100%", background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, resize: "none", lineHeight: 1.6, boxShadow: T.shadow },
-  // Actie bar
-  actieBar: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 1400, background: `linear-gradient(to top, ${T.bg} 75%, transparent)`, padding: "28px 16px 16px", zIndex: 100 },
-  actieBarInner: { display: "flex", flexDirection: "column", gap: 6 },
-  huidigUitkomst: { textAlign: "center", fontSize: 11, color: T.textLight, letterSpacing: 1 },
-  actieBtns: { display: "flex", gap: 8 },
-  actieBtn: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 8px", borderRadius: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, letterSpacing: 0.3, background: T.bgCard, boxShadow: T.shadow },
-  btnAfwijzen: { border: `1px solid ${T.red}50`, color: T.red },
-  btnCallback: { border: `1px solid ${T.orange}50`, color: T.orangeDark },
-  btnGebeld: { flex: 1.5, border: `1px solid ${T.green}50`, color: T.green },
-  verbergBtn: { background: "transparent", border: "none", color: T.textLight, fontSize: 11, cursor: "pointer", fontFamily: "inherit", textAlign: "center", textDecoration: "underline", paddingBottom: 2 },
-};
