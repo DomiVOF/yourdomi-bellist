@@ -93,6 +93,18 @@ async function loadPlatformScan() {
   return null;
 }
 
+// Load all outcomes from server (status per pand)
+async function loadAllOutcomes() {
+  if (!API_URL) return null;
+  try {
+    const r = await fetch(`${API_URL}/api/outcomes`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+    if (r.ok) return await r.json();
+  } catch (e) {
+    console.warn("Failed to load outcomes from server:", e.message);
+  }
+  return null;
+}
+
 // Save outcome to server
 async function saveOutcomeToServer(id, outcome, note, contactNaam) {
   if (!API_URL) return;
@@ -1275,6 +1287,23 @@ export default function App() {
       }).catch(() => {});
       loadPlatformScan().then(scanData => {
         if (scanData && typeof scanData === "object") setPlatformScan(scanData);
+      }).catch(() => {});
+      loadAllOutcomes().then(serverOutcomes => {
+        if (serverOutcomes && typeof serverOutcomes === "object") {
+          const outMap = {};
+          const notesMap = { ...load("notes", {}) };
+          const contactMap = { ...load("contactnamen", {}) };
+          for (const [id, row] of Object.entries(serverOutcomes)) {
+            if (row.outcome) outMap[id] = row.outcome;
+            if (row.note) notesMap[id] = row.note;
+            if (row.contactNaam) contactMap[id] = row.contactNaam;
+          }
+          setOutcomes(outMap);
+          setNotes(notesMap);
+          save("outcomes", outMap);
+          save("notes", notesMap);
+          save("contactnamen", contactMap);
+        }
       }).catch(() => {});
       loadHealth().catch(() => {});
     }
