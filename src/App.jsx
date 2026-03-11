@@ -2204,21 +2204,6 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             )}
 
-            {/* BEHEERFORMULES – CHEAT SHEET (referentie, geen per-pand suggestie) */}
-            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.15s both" }}>
-              <SectieTitel>📋 Beheerformules – overzicht</SectieTitel>
-              <div style={{ ...S.intelKaartBase, background: T.bgCard }}>
-                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
-                  {Object.entries(CONTRACT_INFO).map(([key, info]) => (
-                    <div key={key} style={{ padding: "10px 12px", borderRadius: 8, border: `1px solid ${T.border}`, background: "inherit" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: info.color, marginBottom: 4 }}>{info.pct} {info.label}</div>
-                      <div style={{ fontSize: 11, color: T.textMid }}>{info.desc}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
             {/* ONLINE PLATFORMS */}
             <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.2s both" }}>
               <SectieTitel>🌐 Online aanwezigheid</SectieTitel>
