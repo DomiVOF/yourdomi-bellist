@@ -343,7 +343,7 @@ Zoek systematisch met deze queries (doe elke zoekactie apart):
 5. Als Booking URL gevonden: web_fetch de listing pagina → extraheer foto URLs (cf.bstatic.com CDN), prijs, beoordeling, en inhoud van gastreviews.
 ${property.website ? `6. web_fetch "${property.website}" → controleer HTTP status. Als 200 met echte verhuurcontent: werkt=true en zoek foto URLs. Bij fout/parkeerdomein: werkt=false, gevonden=false.` : ""}
 
-REVIEWS VOOR VERKOOPGESPREK: Als je een Airbnb- of Booking-listing hebt opgehaald, analyseer de gastreviews (of review-snippets op de pagina / in zoekresultaten). Zoek terugkerende thema's die we in het verkoopgesprek kunnen gebruiken, bv.: slechte of inconsistente schoonmaak, lawaai/geluid, parkeren, trage of slechte communicatie, ontbrekende voorzieningen, prijs/kwaliteit. Geef 2-5 korte punten in "reviewThemes" (Nederlands). Geen punten = lege array.
+REVIEWS VOOR VERKOOPGESPREK: Als je een Airbnb- of Booking-listing hebt opgehaald, analyseer de gastreviews (of review-snippets op de pagina / in zoekresultaten). Zoek terugkerende thema's die we in het verkoopgesprek kunnen gebruiken, bv.: slechte of inconsistente schoonmaak, lawaai/geluid, parkeren, trage of slechte communicatie, ontbrekende voorzieningen, prijs/kwaliteit. Geef 2-5 korte punten in "reviewThemes" (Nederlands). Geen punten = lege array. Zet "slechteReviews" op true als de gastreviews overwegend negatief zijn of terugkerende klachten noemen (schoonmaak, communicatie, prijs/kwaliteit) die een duidelijke verbeterkans geven voor yourdomi.
 
 BELANGRIJK voor websites:
 - Voeg ALLEEN een website toe als je deze effectief hebt kunnen ophalen via web_fetch en hij HTTP 200 teruggeeft met echte vakantieverhuur content
@@ -386,6 +386,7 @@ Geef ALLEEN deze JSON (geen markdown):
   "pitchhoek": "Na de vragen: wat biedt yourdomi specifiek voor DEZE eigenaar. 2 zinnen.",
   "zwaktes": ["concreet verbeterpunt 1", "concreet verbeterpunt 2", "concreet verbeterpunt 3"],
   "reviewThemes": ["terugkerend punt uit reviews bv. schoonmaak", "nog een thema dat in gesprek bruikbaar is"],
+  "slechteReviews": true|false,
   "airbnb": {
     "gevonden": true|false,
     "url": "https://www.airbnb.com/rooms/...",
@@ -446,7 +447,7 @@ Contracttypes: visibility=10% (plaatsing), partial=20% (communicatie+prijszettin
       score: "WARM", scoreReden: "Analyse mislukt", prioriteit: 5,
       openingszin: `Goedemiddag, ik bel over uw vakantiewoning in ${property.municipality}.`,
       pitchhoek: "yourdomi.be kan uw kortetermijnverhuur volledig beheren.",
-      zwaktes: [], reviewThemes: [], airbnb: { gevonden: false }, booking: { gevonden: false },
+      zwaktes: [], reviewThemes: [], slechteReviews: false, airbnb: { gevonden: false }, booking: { gevonden: false },
       directWebsite: { gevonden: false }, alleFotos: [],
       geschatMaandelijksInkomen: "Onbekend", geschatBezetting: "Onbekend",
       inkomensNota: "", potentieelMetYourDomi: "Onbekend", potentieelNota: "",
@@ -1145,8 +1146,9 @@ export default function App() {
     heeftEmail: false,
     heeftAirbnb: false,
     heeftBooking: false,
+    heeftFoto: false,
     geenAgentuur: false,
-    slechteWebsite: false,
+    filterReden: "", // "" | "slechte_site" | "slechte_reviews"
     regio: "",
     type: "",
     toonVerborgen: false,
@@ -1336,12 +1338,21 @@ export default function App() {
   };
 
   // Extra filters (AI-enrichment + platform-scan based)
+  const hasPicture = (id, prop) => {
+    const ai = getCardAi(id, prop);
+    const scan = platformScan[id];
+    const en = enriched[id];
+    const urls = en?.airbnb?.fotoUrls || en?.booking?.fotoUrls || en?.directWebsite?.fotoUrls || en?.alleFotos || scan?.fotoUrls;
+    return Array.isArray(urls) && urls.length > 0 && urls.some(u => u && String(u).startsWith("http"));
+  };
   zichtbaar = zichtbaar.filter(p => {
     const ai = getCardAi(p.id, p);
     if (filters.heeftAirbnb && !(ai?.airbnb?.gevonden)) return false;
     if (filters.heeftBooking && !(ai?.booking?.gevonden)) return false;
+    if (filters.heeftFoto && !hasPicture(p.id, p)) return false;
     if (filters.geenAgentuur && enriched[p.id]?.waarschuwingAgentuur) return false;
-    if (filters.slechteWebsite && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
+    if (filters.filterReden === "slechte_site" && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
+    if (filters.filterReden === "slechte_reviews" && !enriched[p.id]?.slechteReviews) return false;
     return true;
   });
 
@@ -1629,18 +1640,31 @@ export default function App() {
                   Op Booking
                 </label>
               </div>
+              <div style={{ ...S.filterCheckRow, marginTop: 6 }}>
+                <label style={S.checkLabel} title="Alleen panden met minstens één foto (van scan of AI)">
+                  <input type="checkbox" checked={filters.heeftFoto} onChange={e => setFilters(f => ({ ...f, heeftFoto: e.target.checked }))} />
+                  Heeft foto
+                </label>
+              </div>
             </div>
 
+            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
+              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Filter op reden (verbeterkans)</div>
+              <div style={S.filterCheckRow}>
+                <FilterSelect
+                  label="Reden"
+                  value={filters.filterReden}
+                  onChange={v => setFilters(f => ({ ...f, filterReden: v }))}
+                  options={[["", "Alle redenen"], ["slechte_site", "Slechte site"], ["slechte_reviews", "Slechte reviews"]]}
+                />
+              </div>
+            </div>
             <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
               <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>AI-signalen</div>
               <div style={S.filterCheckRow}>
                 <label style={S.checkLabel} title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
                   <input type="checkbox" checked={filters.geenAgentuur} onChange={e => setFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} />
                   Geen agentuur/makelaar
-                </label>
-                <label style={S.checkLabel} title="Alleen panden met slecht gebouwde website (kans voor yourdomi)">
-                  <input type="checkbox" checked={filters.slechteWebsite} onChange={e => setFilters(f => ({ ...f, slechteWebsite: e.target.checked }))} />
-                  Slechte website
                 </label>
               </div>
             </div>
@@ -1655,7 +1679,7 @@ export default function App() {
                 <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} />
                 Toon afgewezen
               </label>
-              <button style={S.resetFiltersBtn} onClick={() => setFilters({ zoek:"",gemeente:"",provincie:"",status:"",minSlaap:"",maxSlaap:"",score:"",regio:"",type:"",heeftWebsite:false,heeftTelefoon:false,heeftEmail:false,heeftAirbnb:false,heeftBooking:false,geenAgentuur:false,slechteWebsite:false,toonVerborgen:false,toonAfgewezen:true })}>
+              <button style={S.resetFiltersBtn} onClick={() => setFilters({ zoek:"",gemeente:"",provincie:"",status:"",minSlaap:"",maxSlaap:"",score:"",regio:"",type:"",heeftWebsite:false,heeftTelefoon:false,heeftEmail:false,heeftAirbnb:false,heeftBooking:false,heeftFoto:false,geenAgentuur:false,filterReden:"",toonVerborgen:false,toonAfgewezen:true })}>
                 Filters wissen
               </button>
             </div>
@@ -1742,6 +1766,7 @@ export default function App() {
           const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
           const isAgency = fullAi?.waarschuwingAgentuur;
           const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
+          const slechteReviews = fullAi?.slechteReviews;
 
           return (
             <div
@@ -1828,6 +1853,7 @@ export default function App() {
                     {enrichingIds.has(prop.id) && <span style={S.enrichingDot} />}
                     {isAgency && <span style={S.agentuurPill} title={fullAi.agentuurSignalen}>Makelaar/agentuur</span>}
                     {poorWebsite && <span style={S.poorSitePill} title="Website slecht gebouwd – kans voor yourdomi">Slechte site</span>}
+                    {slechteReviews && <span style={S.poorReviewsPill} title="Negatieve of terugkerende klachten in reviews – kans voor yourdomi">Slechte reviews</span>}
                   </div>
                 </div>
 
@@ -2687,6 +2713,7 @@ const S = {
   fotoPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}` },
   agentuurPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FFF7ED", color: "#C2410C", fontWeight: 600, border: "1px solid #F9731640", cursor: "help" },
   poorSitePill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FEF3C7", color: "#B45309", fontWeight: 600, border: "1px solid #F59E0B40", cursor: "help" },
+  poorReviewsPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FEF9C3", color: "#A16207", fontWeight: 600, border: "1px solid #EAB30840", cursor: "help" },
   // Config view
   cfgHeader: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, position: "sticky", top: 0, zIndex: 50 },
   cfgTitel: { fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: T.green },
