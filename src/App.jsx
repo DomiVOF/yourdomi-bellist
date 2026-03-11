@@ -1120,6 +1120,7 @@ export default function App() {
   const [isDemo, setIsDemo] = useState(false);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [dbTotalCount, setDbTotalCount] = useState(0);
   const [phoneGroups, setPhoneGroups] = useState({}); // phoneNorm -> [ids]
   // Monday config
   const [mondayCfg, setMondayCfg] = useState(() => ({
@@ -1160,6 +1161,18 @@ export default function App() {
   const [aiGestart, setAiGestart] = useState(false);
   const [meta, setMeta] = useState({ provinces: [], types: [], regios: [] });
   const [cardThumbErrors, setCardThumbErrors] = useState({}); // id -> true when thumb image failed to load
+  const [dbEnrichmentCount, setDbEnrichmentCount] = useState(null); // total full enrichments in DB (server-wide)
+
+  const loadHealth = useCallback(async () => {
+    if (!API_URL) return;
+    try {
+      const r = await fetch(`${API_URL}/api/health`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+      if (!r.ok) return;
+      const j = await r.json();
+      const c = Number(j?.enrichments);
+      if (Number.isFinite(c)) setDbEnrichmentCount(c);
+    } catch (_) {}
+  }, []);
 
   // Laad panden + start meteen batch verrijking
   const laadPanden = useCallback(async (p = 1, currentFilters = null) => {
@@ -1171,6 +1184,8 @@ export default function App() {
       setProperties(items);
       const total = Math.max(0, parseInt(data?.meta?.total, 10) || data?.meta?.count || items.length || 0);
       setTotalCount(total);
+      const dbTotal = Math.max(0, parseInt(data?.meta?.dbTotal, 10) || 0);
+      if (dbTotal) setDbTotalCount(dbTotal);
       const groups = {};
       items.forEach(it => {
         if (it.phoneNorm) {
@@ -1221,7 +1236,12 @@ export default function App() {
           save("enriched", updated);
           return updated;
         });
-        saveEnrichment(prop.id, result).catch(() => {});
+        saveEnrichment(prop.id, result)
+          .then(() => {
+            setDbEnrichmentCount(c => (typeof c === "number" ? c + 1 : c));
+            loadHealth().catch(() => {});
+          })
+          .catch(() => {});
       } catch (e) { console.error("Verrijking mislukt voor", prop.name, e); }
       finally {
         setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; });
@@ -1233,7 +1253,7 @@ export default function App() {
     for (let i = 0; i < Math.min(PARALLEL, toEnrich.length); i++) {
       volgende();
     }
-  }, []);
+  }, [loadHealth]);
 
   useEffect(() => {
     // Load meta (provinces, types, regios) from server
@@ -1256,9 +1276,10 @@ export default function App() {
       loadPlatformScan().then(scanData => {
         if (scanData && typeof scanData === "object") setPlatformScan(scanData);
       }).catch(() => {});
+      loadHealth().catch(() => {});
     }
     laadPanden(1);
-  }, [laadPanden]);
+  }, [laadPanden, loadHealth]);
 
   // Re-fetch from server when filters change (debounced 400ms)
   useEffect(() => {
@@ -1396,6 +1417,7 @@ export default function App() {
   const portfolioCount = Object.values(phoneGroups).filter(g => g.length > 1).length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
   const enrichProgress = properties.length > 0 ? Math.round((verrijktCount / properties.length) * 100) : 0;
+  const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
 
   if (view === "config") {
     return (
@@ -1499,7 +1521,9 @@ export default function App() {
             <Stat label="🔥 Heet" val={heetCount} accent />
             <Stat label="Portfolio" val={portfolioCount} />
             <div style={S.enrichProgBlok}>
-              <div style={S.enrichProgLabel}>AI {verrijktCount}/{properties.length}</div>
+              <div style={S.enrichProgLabel}>
+                AI {verrijktDb != null ? verrijktDb : verrijktCount}/{verrijktDb != null ? (dbTotalCount || totalCount) : properties.length}
+              </div>
               <div style={S.enrichProgBar}>
                 <div style={{ ...S.enrichProgFill, width: enrichProgress + "%" }} />
               </div>
@@ -1639,8 +1663,6 @@ export default function App() {
                   <input type="checkbox" checked={filters.heeftBooking} onChange={e => setFilters(f => ({ ...f, heeftBooking: e.target.checked }))} />
                   Op Booking
                 </label>
-              </div>
-              <div style={{ ...S.filterCheckRow, marginTop: 6 }}>
                 <label style={S.checkLabel} title="Alleen panden met minstens één foto (van scan of AI)">
                   <input type="checkbox" checked={filters.heeftFoto} onChange={e => setFilters(f => ({ ...f, heeftFoto: e.target.checked }))} />
                   Heeft foto
