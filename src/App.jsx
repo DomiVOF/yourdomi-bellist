@@ -339,9 +339,11 @@ Zoek systematisch met deze queries (doe elke zoekactie apart):
 1. web_search: "${property.name} ${property.municipality} Airbnb" → zoek exacte Airbnb listing URL (airbnb.com/rooms/...)
 2. web_search: "${property.name} ${property.municipality} Booking.com" → zoek exacte Booking URL (booking.com/hotel/...)
 3. web_search: "${property.name} ${property.municipality} vakantiewoning" → zoek directe website
-4. Als Airbnb URL gevonden: web_fetch de listing pagina → extraheer foto URLs (a0.muscache.com CDN), prijs, beoordeling, reviews
-5. Als Booking URL gevonden: web_fetch de listing pagina → extraheer foto URLs (cf.bstatic.com CDN), prijs, beoordeling, reviews
+4. Als Airbnb URL gevonden: web_fetch de listing pagina → extraheer foto URLs (a0.muscache.com CDN), prijs, beoordeling, en inhoud van gastreviews (tekst of snippets).
+5. Als Booking URL gevonden: web_fetch de listing pagina → extraheer foto URLs (cf.bstatic.com CDN), prijs, beoordeling, en inhoud van gastreviews.
 ${property.website ? `6. web_fetch "${property.website}" → controleer HTTP status. Als 200 met echte verhuurcontent: werkt=true en zoek foto URLs. Bij fout/parkeerdomein: werkt=false, gevonden=false.` : ""}
+
+REVIEWS VOOR VERKOOPGESPREK: Als je een Airbnb- of Booking-listing hebt opgehaald, analyseer de gastreviews (of review-snippets op de pagina / in zoekresultaten). Zoek terugkerende thema's die we in het verkoopgesprek kunnen gebruiken, bv.: slechte of inconsistente schoonmaak, lawaai/geluid, parkeren, trage of slechte communicatie, ontbrekende voorzieningen, prijs/kwaliteit. Geef 2-5 korte punten in "reviewThemes" (Nederlands). Geen punten = lege array.
 
 BELANGRIJK voor websites:
 - Voeg ALLEEN een website toe als je deze effectief hebt kunnen ophalen via web_fetch en hij HTTP 200 teruggeeft met echte vakantieverhuur content
@@ -383,6 +385,7 @@ Geef ALLEEN deze JSON (geen markdown):
   "agentuurSignalen": "Uitleg waarom dit mogelijk een agentuur/beheerder is ipv eigenaar, of leeg als niet van toepassing",
   "pitchhoek": "Na de vragen: wat biedt yourdomi specifiek voor DEZE eigenaar. 2 zinnen.",
   "zwaktes": ["concreet verbeterpunt 1", "concreet verbeterpunt 2", "concreet verbeterpunt 3"],
+  "reviewThemes": ["terugkerend punt uit reviews bv. schoonmaak", "nog een thema dat in gesprek bruikbaar is"],
   "airbnb": {
     "gevonden": true|false,
     "url": "https://www.airbnb.com/rooms/...",
@@ -443,7 +446,7 @@ Contracttypes: visibility=10% (plaatsing), partial=20% (communicatie+prijszettin
       score: "WARM", scoreReden: "Analyse mislukt", prioriteit: 5,
       openingszin: `Goedemiddag, ik bel over uw vakantiewoning in ${property.municipality}.`,
       pitchhoek: "yourdomi.be kan uw kortetermijnverhuur volledig beheren.",
-      zwaktes: [], airbnb: { gevonden: false }, booking: { gevonden: false },
+      zwaktes: [], reviewThemes: [], airbnb: { gevonden: false }, booking: { gevonden: false },
       directWebsite: { gevonden: false }, alleFotos: [],
       geschatMaandelijksInkomen: "Onbekend", geschatBezetting: "Onbekend",
       inkomensNota: "", potentieelMetYourDomi: "Onbekend", potentieelNota: "",
@@ -2219,6 +2222,19 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             )}
 
+            {/* PUNTEN UIT REVIEWS — voor verkoopgesprek (Airbnb/Booking) */}
+            {ai.reviewThemes?.length > 0 && (
+              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.35s both" }}>
+                <SectieTitel>💬 Terugkerende punten uit reviews <span style={{ color: T.textLight, fontWeight: 400, fontSize: 11 }}>(gebruik in gesprek)</span></SectieTitel>
+                <div style={S.intelKaartBase}>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
+                    {ai.reviewThemes.map((theme, i) => (
+                      <li key={i}>{theme}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
 
           </div>
         )}
