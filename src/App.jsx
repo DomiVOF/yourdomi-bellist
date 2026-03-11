@@ -1872,19 +1872,8 @@ export default function App() {
                 addPhone(prop.phone); addPhone(prop.phone2); addPhone(prop["contact-phone"]);
                 addPhone(prop["telefoon"]); addPhone(prop["phone1"]);
                 if (Array.isArray(prop.phones)) prop.phones.forEach(addPhone);
-                const firstPhotoUrl = (fullAi?.airbnb?.fotoUrls?.[0] || fullAi?.booking?.fotoUrls?.[0] || fullAi?.directWebsite?.fotoUrls?.[0] || fullAi?.alleFotos?.[0] || platformScan[prop.id]?.fotoUrls?.[0]);
-                const showThumb = firstPhotoUrl?.startsWith("http") && !cardThumbErrors[prop.id];
 
                 return (<>
-              {/* Thumbnail from Airbnb/Booking/website (when AI has fetched photos) */}
-              {showThumb ? (
-                <img src={firstPhotoUrl} alt="" style={S.kaartThumb} onError={() => setCardThumbErrors(prev => ({ ...prev, [prop.id]: true }))} />
-              ) : (
-                <div style={{ ...S.kaartThumb, display: "flex", alignItems: "center", justifyContent: "center", background: T.bgCardAlt }}>
-                  <span style={{ fontSize: 32, opacity: 0.4 }}>🏡</span>
-                </div>
-              )}
-
               <div style={S.kaartBody}>
                 {/* Header: name + score badge */}
                 <div style={S.kaartTop}>
