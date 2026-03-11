@@ -1835,8 +1835,8 @@ export default function App() {
                   {uitkomst && uitkomst !== "none" && <span style={{ ...S.uitkomstBadge, ...uitkomstStijl(uitkomst) }}>{uitkomstLabel(uitkomst)}</span>}
                 </div>
 
-                {/* Contact: phone(s), email, website */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, borderTop: `1px solid ${T.borderLight}` }}>
+                {/* Contact: phone(s), email, website — fixed structure so cards align with or without website */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, borderTop: `1px solid ${T.borderLight}`, minHeight: 76 }}>
                   {phones.length > 0 ? phones.map((tel, ti) => (
                     <a key={ti} href={`tel:${tel}`} onClick={e => e.stopPropagation()}
                       style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, textDecoration: "none" }}>
@@ -1857,7 +1857,7 @@ export default function App() {
                     const aiWebsite = fullAi?.directWebsite;
                     const websiteWerkt = aiWebsite?.gevonden && aiWebsite?.werkt !== false && aiWebsite?.url;
                     const rawWebsite = prop.website || prop["contact-website"] || prop["website"];
-                    if (aiWebsite && !websiteWerkt && !poorWebsite) return null;
+                    if (aiWebsite && !websiteWerkt && !poorWebsite) return <div style={{ minHeight: 20 }} />;
                     if (websiteWerkt) return (
                       <a href={(aiWebsite.url || "").startsWith("http") ? aiWebsite.url : "https://" + aiWebsite.url}
                         target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
@@ -1875,20 +1875,20 @@ export default function App() {
                         <span style={{ fontSize: 9, color: T.textLight }}>?</span>
                       </a>
                     );
-                    return null;
+                    return <div style={{ minHeight: 20 }} />;
                   })()}
                 </div>
 
-                {/* Platform pills (left) + bed count bottom right */}
+                {/* Platform pills (left) + bed count bottom right — use Boolean so we never render 0 when no platform found */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 8, paddingTop: 8, borderTop: `1px solid ${T.borderLight}` }}>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {(ai?.airbnb?.gevonden || ai?.booking?.gevonden || (fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length)) && (
+                    {(ai?.airbnb?.gevonden || ai?.booking?.gevonden || !!((fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length))) ? (
                       <>
                         {ai?.airbnb?.gevonden && <span style={S.platformPillAirbnb}>Airbnb</span>}
                         {ai?.booking?.gevonden && <span style={S.platformPillBooking}>Booking</span>}
                         {(fullAi?.airbnb?.fotoUrls?.length || fullAi?.booking?.fotoUrls?.length || fullAi?.alleFotos?.length) ? <span style={S.fotoPill}>📷</span> : null}
                       </>
-                    )}
+                    ) : null}
                   </div>
                   {sleep > 0 && <span style={{ fontSize: 11, color: T.textLight }}>🛏 {sleep}</span>}
                 </div>
