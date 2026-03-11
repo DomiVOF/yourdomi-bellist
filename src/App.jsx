@@ -2046,39 +2046,6 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
         </div>
       </div>
 
-      {/* HERO */}
-      <div style={S.dossierHero}>
-        {images.length > 0 ? (
-          <>
-            <img src={images[activeImg]} alt={property.name} style={S.heroImg}
-              onError={() => setImgErrors(p => ({ ...p, [activeImg]: true }))} />
-            <div style={S.heroGradient} />
-            {images.length > 1 && (
-              <>
-                <button style={S.heroArrowL} onClick={() => setActiveImg(p => Math.max(0, p-1))}>&lsaquo;</button>
-                <button style={S.heroArrowR} onClick={() => setActiveImg(p => Math.min(images.length-1, p+1))}>&rsaquo;</button>
-                <div style={S.heroDots}>
-                  {images.map((_, i) => <div key={i} className="img-dot" onClick={() => setActiveImg(i)}
-                    style={{ width: i === activeImg ? 20 : 6, height: 6, borderRadius: 3, background: i === activeImg ? "#fff" : "rgba(255,255,255,0.4)", cursor: "pointer", transition: "all 0.3s" }} />)}
-                </div>
-              </>
-            )}
-          </>
-        ) : (
-          <div style={S.heroPlaceholder}>
-            <span style={{ fontSize: 48 }}>🏡</span>
-            <span style={{ fontSize: 12, color: T.textLight, letterSpacing: 2, marginTop: 8 }}>
-              {enriching ? "AFBEELDINGEN ZOEKEN..." : "GEEN AFBEELDINGEN GEVONDEN"}
-            </span>
-          </div>
-        )}
-        {sc && !enriching && (
-          <div style={{ ...S.heroBadge, background: sc.kleur }}>
-            {sc.emoji ? `${sc.emoji} ` : ""}{sc.label || ai.score} LEAD
-          </div>
-        )}
-      </div>
-
       {/* INHOUD */}
       <div style={S.dossierBody}>
 
