@@ -1622,8 +1622,11 @@ export default function App() {
             onClick={() => {
               if (enrichingIds.size > 0) return;
               setAiGestart(true);
-              // Enrich current page properties first, then rest
-              startBatchEnrich(properties, phoneGroups, properties.map(p => p.id));
+              // Enrich ONLY the currently zichtbare (gefilterde) kaarten op deze pagina
+              const target = zichtbaar;
+              if (Array.isArray(target) && target.length > 0) {
+                startBatchEnrich(target, phoneGroups, target.map(p => p.id));
+              }
             }}
             title={aiGestart ? "AI verrijking actief" : "Start AI verrijking voor gefilterde panden"}
           >
@@ -1942,7 +1945,7 @@ export default function App() {
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                     {sc && <span style={{ ...S.scoreBadge, background: sc.pale, color: sc.kleur, border: `1px solid ${sc.border}` }}>{sc.emoji ? `${sc.emoji} ` : ""}{sc.label || fullAi.score}</span>}
-                    {enrichingIds.has(prop.id) && <span style={S.enrichingDot} />}
+                    {enrichingIds.has(prop.id) && <span style={S.enrichingPill}>AI bezig…</span>}
                     {isAgency && <span style={S.agentuurPill} title={fullAi.agentuurSignalen}>Makelaar/agentuur</span>}
                     {poorWebsite && <span style={S.poorSitePill} title="Website slecht gebouwd – kans voor yourdomi">Slechte site</span>}
                     {slechteReviews && <span style={S.poorReviewsPill} title="Negatieve of terugkerende klachten in reviews – kans voor yourdomi">Slechte reviews</span>}
@@ -2906,7 +2909,7 @@ const S = {
   kaartAdres: { fontSize: 12, color: T.textLight },
   kaartRechts: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 },
   scoreBadge: { fontSize: 10, fontWeight: 700, borderRadius: 6, padding: "3px 8px", letterSpacing: 0.5 },
-  enrichingDot: { width: 8, height: 8, borderRadius: "50%", background: T.orange, animation: "pulse 1s ease infinite" },
+  enrichingPill: { fontSize: 9, borderRadius: 999, padding: "2px 8px", background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, textTransform: "uppercase", letterSpacing: 0.6, animation: "pulse 1.2s ease-in-out infinite" },
   kaartBottom: { display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap", marginTop: "auto", paddingTop: 8 },
   statusTag: { fontSize: 10, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}`, borderRadius: 4, padding: "2px 7px", letterSpacing: 0.5 },
   portfolioTag: { fontSize: 10, background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, borderRadius: 4, padding: "2px 7px", fontWeight: 600 },
