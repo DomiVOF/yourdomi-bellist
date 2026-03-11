@@ -1,27 +1,28 @@
 // YourDomi Bellijst v2.1 — build 2026-03-10
 import React, { useState, useEffect, useCallback, useRef } from "react";
 
-// --- DESIGN TOKENS (van screenshot) ------------------------------------------
+// --- DESIGN TOKENS (light, gold-accent theme) --------------------------------
 const T = {
-  bg: "#F0EDE6",
+  bg: "#FFFFFF",
   bgCard: "#FFFFFF",
-  bgCardAlt: "#F7F5F0",
+  bgCardAlt: "#FAF6EE",
   green: "#2D5C4E",
   greenDark: "#1E3F35",
   greenLight: "#4A8C78",
   greenPale: "#E8F0EE",
-  orange: "#E07B4A",
-  orangePale: "#FBF0EA",
-  orangeDark: "#C4622E",
-  text: "#1A2E29",
-  textMid: "#4A5E59",
-  textLight: "#8A9E99",
-  border: "#DDD9D0",
-  borderLight: "#EAE7E0",
+  // Gold accents (instead of fel oranje)
+  orange: "#C89B3C",
+  orangePale: "#FFF7E0",
+  orangeDark: "#996F1F",
+  text: "#18181B",
+  textMid: "#52525B",
+  textLight: "#A1A1AA",
+  border: "#E4E4E7",
+  borderLight: "#F4F4F5",
   red: "#C0392B",
   redPale: "#FDECEA",
-  shadow: "0 2px 12px rgba(45,92,78,0.08)",
-  shadowMd: "0 4px 24px rgba(45,92,78,0.12)",
+  shadow: "0 16px 40px rgba(15, 23, 42, 0.08)",
+  shadowMd: "0 24px 60px rgba(15, 23, 42, 0.12)",
 };
 
 // --- TV API -------------------------------------------------------------------
@@ -1008,11 +1009,11 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F0EDE6", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600&display=swap');`}</style>
       <div style={{ background: "#fff", borderRadius: 16, padding: "40px 36px", width: 360, boxShadow: "0 4px 24px rgba(0,0,0,0.08)", border: "1px solid #E8E4DC" }}>
         <div style={{ marginBottom: 28, textAlign: "center" }}>
-          <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 900, color: "#2D5C4E", letterSpacing: -0.5 }}>
+          <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 26, fontWeight: 900, color: T.green, letterSpacing: -0.5 }}>
             YourDomi<span style={{ color: "#E07B4A" }}>.</span>
           </div>
           <div style={{ fontSize: 12, color: "#9A9488", marginTop: 4, letterSpacing: 2, textTransform: "uppercase" }}>Bellijst</div>
@@ -2459,7 +2460,7 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
 // --- HULP COMPONENTEN ---------------------------------------------------------
 function SectieTitel({ children }) {
-  return <div style={{ fontSize: 11, letterSpacing: 2, color: T.textLight, textTransform: "uppercase", marginBottom: 12, fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>{children}</div>;
+  return <div style={{ fontSize: 11, letterSpacing: 2, color: T.textLight, textTransform: "uppercase", marginBottom: 12, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontWeight: 600 }}>{children}</div>;
 }
 function IntelKaart({ titel, tekst }) {
   return (
@@ -2741,7 +2742,7 @@ const S = {
   poorReviewsPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#FEF9C3", color: "#A16207", fontWeight: 600, border: "1px solid #EAB30840", cursor: "help" },
   // Config view
   cfgHeader: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", alignItems: "center", gap: 16, position: "sticky", top: 0, zIndex: 50 },
-  cfgTitel: { fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: T.green },
+  cfgTitel: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 18, fontWeight: 700, color: T.green },
   cfgBody: { padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16, maxWidth: 600, margin: "0 auto" },
   cfgSectie: { background: T.bgCard, borderRadius: 14, padding: "18px 16px", boxShadow: T.shadow, border: `1px solid ${T.border}` },
   cfgSectieKop: { display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 16 },
@@ -2749,7 +2750,7 @@ const S = {
   cfgSectieDesc: { fontSize: 12, color: T.textMid, lineHeight: 1.5 },
   cfgVeld: { marginBottom: 12 },
   cfgLabel: { display: "block", fontSize: 11, color: T.textLight, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 },
-  cfgInput: { width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, outline: "none" },
+  cfgInput: { width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "9px 12px", color: T.text, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 13, outline: "none" },
   cfgTestBtn: { background: T.greenPale, border: `1px solid ${T.greenLight}40`, color: T.green, borderRadius: 8, padding: "9px 16px", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" },
   cfgMsg: { fontSize: 12, marginTop: 6 },
   cfgKolommen: { marginTop: 12 },
@@ -2789,12 +2790,12 @@ const S = {
   // Teams meeting button
   teamsMeetingBtn: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "#1a73e8", color: "#fff", borderRadius: 10, padding: "11px 16px", fontSize: 13, fontWeight: 700, textDecoration: "none", width: "100%", marginTop: 6, transition: "all 0.2s" },
   // Root
-  root: { background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 12px", boxSizing: "border-box", overflowX: "hidden" },
+  root: { background: T.bg, minHeight: "100vh", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 12px", boxSizing: "border-box", overflowX: "hidden" },
   // Header
   header: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 50, boxShadow: T.shadow, overflow: "hidden" },
   headerInner: { padding: "14px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1400, margin: "0 auto" },
   brand: { display: "flex", alignItems: "baseline", gap: 2 },
-  brandName: { fontFamily: "'Playfair Display', serif", fontSize: 20, fontWeight: 900, color: T.green },
+  brandName: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 20, fontWeight: 900, color: T.green },
   brandDot: { color: T.orange, fontSize: 24, fontWeight: 900, lineHeight: 1 },
   brandSub: { fontSize: 9, color: T.textLight, letterSpacing: 3, marginLeft: 6 },
   headerStats: { display: "flex", gap: 20 },
@@ -2806,7 +2807,7 @@ const S = {
   // Filter bar
   filterBar: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 57, zIndex: 40, overflow: "hidden" },
   filterInner: { padding: "10px 0", display: "flex", gap: 6, alignItems: "center", minWidth: 0, width: "100%", boxSizing: "border-box" },
-  zoekInput: { flex: "1 1 0", minWidth: 0, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", color: T.text, fontFamily: "'DM Sans', sans-serif", fontSize: 13, outline: "none" },
+  zoekInput: { flex: "1 1 0", minWidth: 0, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 12px", color: T.text, fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", fontSize: 13, outline: "none" },
   filterToggleBtn: { background: T.greenPale, border: `1px solid ${T.greenLight}30`, color: T.green, borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontSize: 12, fontFamily: "inherit", whiteSpace: "nowrap" },
   refreshBtn: { background: T.bg, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 8, padding: "8px 10px", cursor: "pointer", fontSize: 14 },
   filterPanel: { padding: "12px 16px 16px", borderTop: `1px solid ${T.borderLight}`, background: T.bgCardAlt },
@@ -2850,7 +2851,7 @@ const S = {
   paginering: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 24px", borderTop: `1px solid ${T.border}`, marginTop: 4 },
   pagBtn: { background: T.bgCard, border: `1px solid ${T.border}`, color: T.textMid, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 },
   // DOSSIER
-  dossierRoot: { background: T.bg, minHeight: "100vh", fontFamily: "'DM Sans', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 24px", position: "relative" },
+  dossierRoot: { background: T.bg, minHeight: "100vh", fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", color: T.text, maxWidth: 1400, margin: "0 auto", padding: "0 24px", position: "relative" },
   dossierNav: { background: T.bgCard, borderBottom: `1px solid ${T.border}`, padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 50 },
   terugBtn: { background: "transparent", border: "none", color: T.green, cursor: "pointer", fontSize: 13, fontFamily: "inherit", fontWeight: 500 },
   navBtns: { display: "flex", alignItems: "center", gap: 10 },
@@ -2871,7 +2872,7 @@ const S = {
   dossierColRight: { minWidth: 0 },
   sectie: { padding: "20px 20px 0" },
   pandKop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 12 },
-  pandNaam: { fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 900, color: T.text, lineHeight: 1.2, marginBottom: 4 },
+  pandNaam: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 28, fontWeight: 900, color: T.text, lineHeight: 1.2, marginBottom: 4 },
   pandAdres: { fontSize: 12, color: T.textLight, lineHeight: 1.4 },
   statusChip: { display: "flex", alignItems: "center", gap: 5, borderRadius: 10, padding: "4px 10px", fontSize: 10, letterSpacing: 1, flexShrink: 0, fontWeight: 600 },
   statsRij: { display: "flex", flexWrap: "wrap", gap: 6, background: T.bgCardAlt, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 14px" },
@@ -2889,12 +2890,12 @@ const S = {
   portfolioItemGem: { fontSize: 11, color: T.textLight },
   // Opening
   openingsCard: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 12, padding: "18px 18px 18px 24px", position: "relative", overflow: "hidden", boxShadow: T.shadow },
-  aanhalingsteken: { position: "absolute", top: 0, left: 10, fontSize: 60, color: T.greenPale, fontFamily: "'Playfair Display', serif", lineHeight: 1, userSelect: "none" },
+  aanhalingsteken: { position: "absolute", top: 0, left: 10, fontSize: 60, color: T.greenPale, fontFamily: "Georgia, 'Times New Roman', serif", lineHeight: 1, userSelect: "none" },
   openingsTekst: { fontSize: 15, lineHeight: 1.7, color: T.text, fontStyle: "italic", position: "relative", zIndex: 1 },
   // Contract
   contractGrid: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 10 },
   contractKaart: { borderRadius: 10, padding: "12px 12px 14px", position: "relative", textAlign: "center" },
-  contractPct: { fontSize: 22, fontWeight: 900, fontFamily: "'Playfair Display', serif", marginBottom: 2 },
+  contractPct: { fontSize: 22, fontWeight: 900, fontFamily: "Georgia, 'Times New Roman', serif", marginBottom: 2 },
   contractLabel: { fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 3 },
   contractDesc: { fontSize: 10, color: T.textLight, lineHeight: 1.4 },
   contractAanbevolen: { position: "absolute", top: -1, right: -1, color: "#fff", fontSize: 9, padding: "3px 7px", borderRadius: "0 9px 0 6px", letterSpacing: 1, fontWeight: 700 },
@@ -2913,7 +2914,7 @@ const S = {
   omzetKaartNu: { background: T.bgCard, border: `1px solid ${T.border}`, borderRadius: 12, padding: "14px 16px", boxShadow: T.shadow },
   omzetKaartYD: { background: T.greenPale, border: `1px solid ${T.greenLight}50`, borderRadius: 12, padding: "14px 16px" },
   omzetLabelKlein: { fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: T.textLight, marginBottom: 6 },
-  omzetBedrag: { fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 900, marginBottom: 2 },
+  omzetBedrag: { fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 22, fontWeight: 900, marginBottom: 2 },
   omzetSubLabel: { fontSize: 11, color: T.textLight, marginBottom: 4 },
   omzetNota: { fontSize: 11, color: T.textLight, lineHeight: 1.4, marginTop: 4 },
   // Intel
