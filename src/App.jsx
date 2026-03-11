@@ -1415,6 +1415,7 @@ export default function App() {
   const heetCount = properties.filter(p => enriched[p.id]?.score === "HEET").length;
   const warmCount = properties.filter(p => enriched[p.id]?.score === "WARM").length;
   const portfolioCount = Object.values(phoneGroups).filter(g => g.length > 1).length;
+  const interesseCount = properties.filter(p => outcomes[p.id] === "gebeld_interesse").length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
   const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
 
@@ -1516,9 +1517,9 @@ export default function App() {
             {mondayActief ? <span style={S.cfgActief}>Monday v</span> : <span style={S.cfgInactief}>Integraties</span>}
           </button>
           <div className="yd-header-stats" style={S.headerStats}>
-            <Stat label="Panden" val={zichtbaar.length} />
             <Stat label="🔥 Heet" val={heetCount} accent />
             <Stat label="Portfolio" val={portfolioCount} />
+            <Stat label="Interesse" val={interesseCount} />
             <div style={S.enrichProgBlok}>
               <div style={S.enrichProgLabel}>
                 AI-scanned: {verrijktDb != null ? verrijktDb : verrijktCount}
@@ -1954,7 +1955,7 @@ export default function App() {
       {/* PAGINERING */}
       <div style={S.paginering}>
         <button style={S.pagBtn} disabled={page <= 1} onClick={() => { setPage(p => p-1); laadPanden(page-1); }}>&laquo; Vorige</button>
-        <span style={{ color: T.textLight, fontSize: 12 }}>{properties.length} van ~{totalCount} panden</span>
+        <span style={{ color: T.textLight, fontSize: 12 }}>~{totalCount} panden</span>
         <button style={S.pagBtn} onClick={() => { setPage(p => p+1); laadPanden(page+1); }}>Volgende &raquo;</button>
       </div>
     </div>
