@@ -2170,24 +2170,7 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             )}
 
-            {/* WAAROM HEET/WARM/KOUD – in details van de listing */}
-            {ai.scoreReden && (
-              <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.08s both" }}>
-                <SectieTitel>Waarom {ai.score === "HEET" ? "🔥 HEET" : ai.score === "WARM" ? "WARM" : "KOUD"}?</SectieTitel>
-                <div style={{ ...S.intelKaartBase, borderLeft: `4px solid ${SCORES[ai.score]?.border || T.border}` }}>
-                  <p style={S.intelKaartTekst}>{ai.scoreReden}</p>
-                </div>
-              </div>
-            )}
-
-            {/* OPENINGSZIN */}
-            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.1s both" }}>
-              <SectieTitel>📞 Openingszin</SectieTitel>
-              <div style={S.openingsCard}>
-                <div style={S.aanhalingsteken}>"</div>
-                <p style={S.openingsTekst}>{ai.openingszin}</p>
-              </div>
-            </div>
+            {/* (scoreReden en openingszin worden nu samengevat in de verkoopintelligentie-sectie) */}
 
             {/* CONSULTIEVE VRAGEN */}
             {ai.consultieveVragen?.length > 0 && (
