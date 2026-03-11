@@ -1444,7 +1444,7 @@ export default function App() {
   const heetCount = properties.filter(p => enriched[p.id]?.score === "HEET").length;
   const warmCount = properties.filter(p => enriched[p.id]?.score === "WARM").length;
   const portfolioCount = Object.values(phoneGroups).filter(g => g.length > 1).length;
-  const interesseCount = properties.filter(p => outcomes[p.id] === "gebeld_interesse").length;
+  const interesseCount = Object.values(outcomes).filter(o => o === "gebeld_interesse").length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
   const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
 
