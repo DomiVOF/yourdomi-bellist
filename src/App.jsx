@@ -23,6 +23,8 @@ const T = {
   redPale: "#FDECEA",
   shadow: "0 16px 40px rgba(15, 23, 42, 0.08)",
   shadowMd: "0 24px 60px rgba(15, 23, 42, 0.12)",
+  shadowCard: "0 1px 3px rgba(0,0,0,0.04), 0 6px 16px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.04)",
+  shadowCardHover: "0 4px 8px rgba(0,0,0,0.04), 0 12px 28px rgba(15, 23, 42, 0.1), 0 24px 48px rgba(15, 23, 42, 0.08)",
 };
 
 // --- TV API -------------------------------------------------------------------
@@ -1867,6 +1869,7 @@ export default function App() {
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                     {sc && <span style={{ ...S.scoreBadge, background: sc.pale, color: sc.kleur, border: `1px solid ${sc.border}` }}>{sc.emoji ? `${sc.emoji} ` : ""}{sc.label || fullAi.score}</span>}
                     {enrichingIds.has(prop.id) && <span style={S.enrichingPill}>AI bezig…</span>}
+                    {fullAi && !enrichingIds.has(prop.id) && <span style={S.aiGescandPill}>AI gescand</span>}
                     {isAgency && <span style={S.agentuurPill} title={fullAi.agentuurSignalen}>Makelaar/agentuur</span>}
                     {poorWebsite && <span style={S.poorSitePill} title="Website slecht gebouwd – kans voor yourdomi">Slechte site</span>}
                     {slechteReviews && <span style={S.poorReviewsPill} title="Negatieve of terugkerende klachten in reviews – kans voor yourdomi">Slechte reviews</span>}
@@ -1881,7 +1884,7 @@ export default function App() {
                 </div>
 
                 {/* Contact: phone(s), email, website — fixed structure so cards align with or without website */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, borderTop: `1px solid ${T.borderLight}`, minHeight: 76 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 14, marginTop: "auto", borderTop: `1px solid ${T.borderLight}`, minHeight: 76 }}>
                   {phones.length > 0 ? phones.map((tel, ti) => (
                     <a key={ti} href={`tel:${tel}`} onClick={e => e.stopPropagation()}
                       style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMid, textDecoration: "none" }}>
@@ -2607,8 +2610,13 @@ const globalCSS = `
   @keyframes fadeUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
   @keyframes pulse { 0%,100% { opacity:0.5; } 50% { opacity:1; } }
   @keyframes shimmer { from { background-position:-200% 0; } to { background-position:200% 0; } }
-  .kaart-hover { cursor: pointer; transition: all 0.2s ease; }
-  .kaart-hover:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(45,92,78,0.14) !important; }
+  .kaart-hover { cursor: pointer; }
+  .kaart-hover:hover {
+    transform: translateY(-6px) scale(1.01);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.04), 0 12px 28px rgba(15,23,42,0.1), 0 24px 48px rgba(15,23,42,0.08) !important;
+    border-color: rgba(200,155,60,0.25) !important;
+  }
+  .kaart-hover:active { transform: translateY(-3px) scale(1.005); }
   .yd-table-row:hover { background: rgba(45,92,78,0.06) !important; }
   .actie-btn { transition: all 0.2s ease !important; }
   .actie-btn:hover { transform: translateY(-2px); }
@@ -2739,30 +2747,37 @@ const S = {
   demoBanner: { background: '#FFF8E6', color: '#8a6a10', border: '1px solid #e8c84a50', borderBottom: '1px solid #e8c84a50', padding: '8px 16px', fontSize: 12, lineHeight: 1.5 },
   errorBar: { background: T.redPale, color: T.red, padding: '8px 16px', fontSize: 12, borderBottom: `1px solid ${T.red}30` },
   // Lijst
-  lijst: { padding: "16px 0 0", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, alignItems: "stretch" },
+  lijst: { padding: "20px 0 0", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 20, alignItems: "stretch" },
   loadingMsg: { textAlign: "center", color: T.textLight, padding: 24, fontSize: 13 },
   leegMelding: { textAlign: "center", color: T.textLight, padding: 40, fontSize: 13 },
   kaart: {
-    background: T.bgCard, borderRadius: 14, padding: 0,
-    boxShadow: T.shadow, cursor: "pointer",
-    border: `1px solid ${T.border}`,
+    background: T.bgCard,
+    borderRadius: 16,
+    padding: 0,
+    boxShadow: T.shadowCard,
+    cursor: "pointer",
+    border: `1px solid ${T.borderLight}`,
     overflow: "hidden",
-    display: "flex", flexDirection: "column",
+    display: "flex",
+    flexDirection: "column",
+    transition: "transform 0.25s ease, box-shadow 0.25s ease, border-color 0.2s ease",
+    position: "relative",
   },
   kaartThumb: { width: "100%", height: 120, background: T.bgCardAlt, objectFit: "cover", flexShrink: 0 },
-  kaartBody: { padding: "18px 20px 20px", flex: 1, display: "flex", flexDirection: "column", gap: 14 },
-  kaartTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 2 },
+  kaartBody: { padding: "20px 22px 22px", flex: 1, display: "flex", flexDirection: "column", gap: 16 },
+  kaartTop: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, marginBottom: 4 },
   kaartNaamBlok: { flex: 1, minWidth: 0 },
-  kaartNaam: { fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
+  kaartNaam: { fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.3, letterSpacing: "-0.02em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
   kaartAdres: { fontSize: 13, color: T.textLight },
-  kaartRechts: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 },
-  scoreBadge: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "4px 10px", letterSpacing: 0.6 },
-  enrichingPill: { fontSize: 10, borderRadius: 999, padding: "3px 10px", background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, textTransform: "uppercase", letterSpacing: 0.8, animation: "pulse 1.2s ease-in-out infinite" },
+  kaartRechts: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, flexShrink: 0 },
+  scoreBadge: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "5px 12px", letterSpacing: 0.6, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" },
+  enrichingPill: { fontSize: 10, borderRadius: 999, padding: "3px 10px", background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, textTransform: "uppercase", letterSpacing: 0.8, animation: "pulse 1.2s ease-in-out infinite", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" },
+  aiGescandPill: { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#D1FAE5", color: "#047857", fontWeight: 600, border: "1px solid #10B98140", cursor: "default" },
   kaartBottom: { display: "flex", alignItems: "flex-start", gap: 6, flexWrap: "wrap", marginTop: "auto", paddingTop: 8 },
-  statusTag: { fontSize: 11, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}`, borderRadius: 999, padding: "3px 10px", letterSpacing: 0.5 },
-  portfolioTag: { fontSize: 11, background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, borderRadius: 999, padding: "3px 10px", fontWeight: 600 },
+  statusTag: { fontSize: 11, background: T.bgCardAlt, color: T.textMid, border: `1px solid ${T.border}`, borderRadius: 999, padding: "4px 11px", letterSpacing: 0.4, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
+  portfolioTag: { fontSize: 11, background: T.orangePale, color: T.orangeDark, border: `1px solid ${T.orange}40`, borderRadius: 999, padding: "4px 11px", fontWeight: 600, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" },
   contactTag: { fontSize: 11, color: T.textLight },
-  uitkomstBadge: { fontSize: 10, borderRadius: 4, padding: "2px 7px", fontWeight: 500 },
+  uitkomstBadge: { fontSize: 10, borderRadius: 6, padding: "3px 8px", fontWeight: 500, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
   contractTag: { fontSize: 10, borderRadius: 4, padding: "2px 7px", fontWeight: 600, marginLeft: "auto" },
   // Paginering
   paginering: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 24px", borderTop: `1px solid ${T.border}`, marginTop: 4 },
