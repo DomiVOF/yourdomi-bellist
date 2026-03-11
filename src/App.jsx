@@ -2157,6 +2157,38 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
         )}
         {!enriching && ai && (
           <div>
+            {/* SAMENGEVATTE VERKOOPINTELLIGENTIE (BOVENAAN) */}
+            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.05s both" }}>
+              <SectieTitel>🎯 Verkoopintelligentie</SectieTitel>
+              <div style={S.intelKaartBase}>
+                <div style={S.intelKaartTitel}>Samenvatting</div>
+                <p style={{ fontSize: 13, color: T.textMid, lineHeight: 1.6, margin: 0 }}>
+                  {[ai.scoreReden, ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
+                </p>
+                {(ai.locatieHighlights?.length || 0) > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ai.locatieHighlights.map((h, i) => (
+                      <span key={i} style={S.tagGroen}>{h}</span>
+                    ))}
+                  </div>
+                )}
+                {(ai.zwaktes?.length || 0) > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {ai.zwaktes.map((z, i) => (
+                      <span key={i} style={S.tagOranje}>{z}</span>
+                    ))}
+                  </div>
+                )}
+                {(ai.reviewThemes?.length || 0) > 0 && (
+                  <ul style={{ margin: 10, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
+                    {ai.reviewThemes.map((theme, i) => (
+                      <li key={i}>{theme}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
             {/* AGENTUUR WAARSCHUWING */}
             {ai.waarschuwingAgentuur && (
               <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.08s both" }}>
@@ -2245,38 +2277,6 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
                 </div>
               </div>
             )}
-
-            {/* SAMENGEVATTE VERKOOPINTELLIGENTIE */}
-            <div style={{ ...S.sectie, animation: "fadeUp 0.4s ease 0.3s both" }}>
-              <SectieTitel>🎯 Verkoopintelligentie</SectieTitel>
-              <div style={S.intelKaartBase}>
-                <div style={S.intelKaartTitel}>Samenvatting</div>
-                <p style={{ fontSize: 13, color: T.textMid, lineHeight: 1.6, margin: 0 }}>
-                  {[ai.scoreReden, ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
-                </p>
-                {(ai.locatieHighlights?.length || 0) > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {ai.locatieHighlights.map((h, i) => (
-                      <span key={i} style={S.tagGroen}>{h}</span>
-                    ))}
-                  </div>
-                )}
-                {(ai.zwaktes?.length || 0) > 0 && (
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {ai.zwaktes.map((z, i) => (
-                      <span key={i} style={S.tagOranje}>{z}</span>
-                    ))}
-                  </div>
-                )}
-                {(ai.reviewThemes?.length || 0) > 0 && (
-                  <ul style={{ margin: 10, paddingLeft: 18, fontSize: 13, color: T.textMid, lineHeight: 1.6 }}>
-                    {ai.reviewThemes.map((theme, i) => (
-                      <li key={i}>{theme}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
 
           </div>
         )}
