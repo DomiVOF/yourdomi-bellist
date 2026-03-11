@@ -1162,6 +1162,7 @@ export default function App() {
     heeftFoto: false,
     geenAgentuur: false,
     filterReden: "", // "" | "slechte_site" | "slechte_reviews"
+    belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
     regio: "",
     type: "",
     toonVerborgen: false,
@@ -1397,12 +1398,16 @@ export default function App() {
   };
   zichtbaar = zichtbaar.filter(p => {
     const ai = getCardAi(p.id, p);
+    const outcome = outcomes[p.id];
     if (filters.heeftAirbnb && !(ai?.airbnb?.gevonden)) return false;
     if (filters.heeftBooking && !(ai?.booking?.gevonden)) return false;
     if (filters.heeftFoto && !hasPicture(p.id, p)) return false;
     if (filters.geenAgentuur && enriched[p.id]?.waarschuwingAgentuur) return false;
     if (filters.filterReden === "slechte_site" && !(enriched[p.id]?.directWebsite?.poorlyBuilt)) return false;
     if (filters.filterReden === "slechte_reviews" && !enriched[p.id]?.slechteReviews) return false;
+    if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
+    if (filters.belstatus === "interesse" && outcome !== "gebeld_interesse") return false;
+    if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
     return true;
   });
 
@@ -1704,6 +1709,22 @@ export default function App() {
               </div>
             </div>
             <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
+              <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>Belstatus</div>
+              <div style={S.filterCheckRow}>
+                <FilterSelect
+                  label="Belstatus"
+                  value={filters.belstatus}
+                  onChange={v => setFilters(f => ({ ...f, belstatus: v }))}
+                  options={[
+                    ["", "Alle statussen"],
+                    ["terugbellen", "Terugbellen"],
+                    ["interesse", "Interesse"],
+                    ["afgewezen", "Niet geïnteresseerd"],
+                  ]}
+                />
+              </div>
+            </div>
+            <div style={{ borderTop: "1px solid #e8e3da", paddingTop: 10, marginTop: 4 }}>
               <div style={{ fontSize: 10, letterSpacing: 1.5, color: "#9b8ea0", textTransform: "uppercase", marginBottom: 8 }}>AI-signalen</div>
               <div style={S.filterCheckRow}>
                 <label style={S.checkLabel} title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
@@ -1723,7 +1744,33 @@ export default function App() {
                 <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} />
                 Toon afgewezen
               </label>
-              <button style={S.resetFiltersBtn} onClick={() => setFilters({ zoek:"",gemeente:"",provincie:"",status:"",minSlaap:"",maxSlaap:"",score:"",regio:"",type:"",heeftWebsite:false,heeftTelefoon:false,heeftEmail:false,heeftAirbnb:false,heeftBooking:false,heeftFoto:false,geenAgentuur:false,filterReden:"",toonVerborgen:false,toonAfgewezen:true })}>
+              <button
+                style={S.resetFiltersBtn}
+                onClick={() =>
+                  setFilters({
+                    zoek: "",
+                    gemeente: "",
+                    provincie: "",
+                    status: "",
+                    minSlaap: "",
+                    maxSlaap: "",
+                    score: "",
+                    regio: "",
+                    type: "",
+                    heeftWebsite: false,
+                    heeftTelefoon: false,
+                    heeftEmail: false,
+                    heeftAirbnb: false,
+                    heeftBooking: false,
+                    heeftFoto: false,
+                    geenAgentuur: false,
+                    filterReden: "",
+                    belstatus: "",
+                    toonVerborgen: false,
+                    toonAfgewezen: true,
+                  })
+                }
+              >
                 Filters wissen
               </button>
             </div>
