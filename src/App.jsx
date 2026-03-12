@@ -966,6 +966,53 @@ const SCORES = {
   KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: null, label: "KOUD" },
 };
 
+function isLikelyAgency(property, enrichedData = null) {
+  // If AI already flagged it, trust that
+  if (enrichedData?.waarschuwingAgentuur === true) return true;
+  if (enrichedData?.waarschuwingAgentuur === false) return false;
+
+  // Phone prefix checks — fixed-line numbers starting with
+  // 05 or +325 are almost always offices/agencies
+  const phone = (property.phone || property.phoneNorm || "")
+    .replace(/[\s\-().]/g, "")
+    .replace(/^00/, "+")
+    .replace(/^\+?0032/, "+32");
+
+  const isMobile = /^\+324\d/.test(phone);
+  if (!isMobile) {
+    if (phone.startsWith("+325") || phone.startsWith("05")) {
+      return true;
+    }
+  }
+
+  // Email domain checks
+  const email = (property.email || "").toLowerCase();
+  const agencyEmailKeywords = [
+    "immo", "vastgoed", "makelaardij", "makelaar",
+    "realty", "estate", "agency", "agentuur", "beheer",
+    "rental", "verhuur", "vakantie", "holiday", "tourism",
+    "booking", "reservations", "info@visit", "toerisme",
+    "kustimmo", "coastimmo", "seaimmo",
+  ];
+  for (const kw of agencyEmailKeywords) {
+    if (email.includes(kw)) return true;
+  }
+
+  // Generic info@ or contact@ emails with agency-sounding domain
+  if (email.startsWith("info@") || email.startsWith("contact@")) {
+    const domain = email.split("@")[1] || "";
+    const genericDomains = [
+      "vakantiewoning", "holiday", "rental", "verhuur",
+      "beheer", "immo", "realty",
+    ];
+    for (const kw of genericDomains) {
+      if (domain.includes(kw)) return true;
+    }
+  }
+
+  return false;
+}
+
 // Single AI insight line for card: missing platform > no agency > poor site > high reviews
 function getCardAiSignal(fullAi, ai) {
   if (!ai && !fullAi) return null;
@@ -1000,6 +1047,7 @@ function PropertyCard({
   onAfgewezen,
   onOutcome,
   onInteresseClick,
+  phoneGroups,
   animationStyle,
 }) {
   const street = prop.street || prop["address-street"] || prop.straat || "";
@@ -1020,6 +1068,9 @@ function PropertyCard({
   if (ai?.booking?.gevonden) platformLabels.push("Booking");
   const platformStr = platformLabels.length ? platformLabels.join(", ") : "—";
   const sc = fullAi?.score ? SCORES[fullAi.score] : null;
+  const isAgency = fullAi?.waarschuwingAgentuur ||
+    isLikelyAgency(prop, fullAi || null) ||
+    (prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) >= 4);
   const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
 
   return (
@@ -1491,7 +1542,13 @@ export default function App() {
     const ai = getCardAi(p.id, p);
     const outcome = outcomes[p.id];
     if (filters.heeftAi && !enriched[p.id]) return false;
-    if (filters.geenAgentuur && enriched[p.id]?.waarschuwingAgentuur) return false;
+    if (filters.geenAgentuur) {
+      const aiConfirmed = enriched[p.id]?.waarschuwingAgentuur === true;
+      const heuristicFlag = isLikelyAgency(p, enriched[p.id] || null);
+      const bulkPhone = p.phoneNorm &&
+        (phoneGroups[p.phoneNorm]?.length || 0) >= 4;
+      if (aiConfirmed || heuristicFlag || bulkPhone) return false;
+    }
     if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
@@ -1869,7 +1926,11 @@ export default function App() {
                   if (ai?.airbnb?.gevonden) platformLabels.push("Airbnb");
                   if (ai?.booking?.gevonden) platformLabels.push("Booking");
                   const platformStr = platformLabels.length ? platformLabels.join(", ") : "—";
-                  const agentuurStr = fullAi?.waarschuwingAgentuur ? "Ja" : "—";
+                  const agentuurStr = (
+                    enriched[p.id]?.waarschuwingAgentuur ||
+                    isLikelyAgency(p, enriched[p.id] || null) ||
+                    (p.phoneNorm && (phoneGroups[p.phoneNorm]?.length || 0) >= 4)
+                  ) ? "⚠ Ja" : "—";
                   const rowOutcome = outcomes[p.id];
                   const scoreNum = fullAi?.prioriteit != null ? String(Math.min(99, Math.max(0, fullAi.prioriteit * 10))).padStart(2, "0") : (fullAi?.score === "HEET" ? "85" : fullAi?.score === "WARM" ? "60" : fullAi?.score === "KOUD" ? "40" : null);
                   const hasPhone = !!(p.phone || p.phone2 || p["contact-phone"] || p.telefoon || p.phone1 || (Array.isArray(p.phones) && p.phones.length > 0));
@@ -1973,6 +2034,7 @@ export default function App() {
               }}
               onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
               onOutcome={v => slaUitkomstOp(prop.id, v)}
+              phoneGroups={phoneGroups}
               onInteresseClick={(p) => setInteressePopupProp(p)}
               animationStyle={{ animation: `fadeUp 0.3s ease ${idx * 0.03}s both` }}
             />
@@ -2257,7 +2319,8 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               </div>
             </div>
 
-            {ai.waarschuwingAgentuur && (
+            {(ai?.waarschuwingAgentuur ||
+              isLikelyAgency(property, ai || null)) && (
               <div className="pt-6 animate-[fadeUp_0.4s_ease_0.08s_both]" style={{ animationName: "fadeUp" }}>
                 <div className="bg-orange-50 border border-orange-300 rounded-xl py-3 px-4 flex gap-3 items-start">
                   <span className="text-lg text-orange-600 font-bold">!</span>
