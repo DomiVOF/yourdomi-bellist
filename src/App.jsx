@@ -1697,8 +1697,8 @@ export default function App() {
   // Gefilterde + gesorteerde lijst
   let zichtbaar = properties.filter(p => {
     // Local-only filters (not sent to server)
-    if (!filters.toonVerborgen && hidden.includes(p.id)) return false;
     const outcome = outcomes[p.id];
+    if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
     if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
@@ -1747,7 +1747,7 @@ export default function App() {
 
   const isVisible = (p) => {
     const outcome = outcomes[p.id];
-    if (!filters.toonVerborgen && hidden.includes(p.id)) return false;
+    if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
     if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
