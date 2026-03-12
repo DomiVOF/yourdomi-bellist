@@ -750,6 +750,7 @@ EXACT valid values for stage (must match exactly):
 - "Lost" — verloren
 - "Think About It / Nurture" — nadenken
 - "Contact Later" — later contacteren
+- "Infomail send" — infomail verstuurd naar eigenaar
 
 Respond ONLY with valid JSON, no explanation:
 {
@@ -764,6 +765,7 @@ Rules:
 - Only set stage if the note clearly implies a stage change
 - Convert relative dates like "vrijdag", "volgende week", "over 2 dagen" to YYYY-MM-DD
 - assignedTo: extract name if someone specific is mentioned (e.g. "Aaron moet bellen" -> "Aaron")
+- If the notes mention sending an email, info mail, or phrases like "mail gestuurd/verzonden", set stage to "Infomail send" and nextStep to "Follow-up"
 - If nothing concrete, return null for all fields`
         }]
       })
@@ -1372,6 +1374,7 @@ export default function App() {
   const nextPageCacheRef = useRef(null);
   const fillingRef = useRef(false);
   const lastPageLoadedRef = useRef(1);
+  const fetchTokenRef = useRef(0);
   // Monday config
   const [mondayCfg, setMondayCfg] = useState(() => ({
     apiKey:        loadCfg("monday_key"),
@@ -1403,6 +1406,8 @@ export default function App() {
     type: "",
     toonVerborgen: false,
     toonAfgewezen: true,
+    toonInteresse: true,
+    toonTerugbellen: true,
   });
   const [filterOpen, setFilterOpen] = useState(false);
   const [sorteer, setSorteer] = useState("score"); // score | naam | slaap | gemeente
@@ -1423,15 +1428,18 @@ export default function App() {
     } catch (_) {}
   }, []);
 
-  async function preloadNextPage(basePage, currentFilters = null) {
+  async function preloadNextPage(basePage, currentFilters = null, currentSorteer = null) {
+    const myToken = fetchTokenRef.current;
     const filtersToUse = currentFilters || filters;
+    const sortToUse = currentSorteer || sorteer;
     const next = basePage + 1;
     try {
-      const result = await fetchPagesWithFill(next, 50, filtersToUse, sorteer);
+      const result = await fetchPagesWithFill(next, 50, filtersToUse, sortToUse);
       if (!result.items.length) {
         nextPageCacheRef.current = null;
         return;
       }
+      if (myToken !== fetchTokenRef.current) return;
       nextPageCacheRef.current = { page: next, items: result.items, meta: result.meta };
     } catch {
       nextPageCacheRef.current = null;
@@ -1439,10 +1447,12 @@ export default function App() {
   }
 
   // Laad panden + start meteen batch verrijking
-  const laadPanden = useCallback(async (p = 1, currentFilters = null) => {
+  const laadPanden = useCallback(async (p = 1, currentFilters = null, token = null) => {
+    const myToken = token ?? fetchTokenRef.current;
     setLoading(true); setError(null);
     try {
       const { items, meta } = await fetchPagesWithFill(p, 50, currentFilters || {}, sorteer);
+      if (myToken !== fetchTokenRef.current) return;
       setProperties(items);
       const total = Math.max(0, parseInt(meta?.total, 10) || meta?.count || items.length || 0);
       setTotalCount(total);
@@ -1461,7 +1471,7 @@ export default function App() {
       const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
       lastPageLoadedRef.current = p + pagesUsed - 1;
       if (p * 50 < total) {
-        preloadNextPage(p, currentFilters || filters);
+        preloadNextPage(p, currentFilters || filters, sorteer);
       } else {
         nextPageCacheRef.current = null;
       }
@@ -1472,7 +1482,11 @@ export default function App() {
         setError(e.message);
       }
     }
-    finally { setLoading(false); }
+    finally {
+      if (myToken === fetchTokenRef.current) {
+        setLoading(false);
+      }
+    }
   }, [filters, sorteer, selected]);
 
   // Batch verrijking - laadt alle panden van de pagina 3 tegelijk op
@@ -1576,11 +1590,14 @@ export default function App() {
   useEffect(() => {
     if (!API_URL) return; // client-side filtering only when no server
     const timer = setTimeout(() => {
+      fetchTokenRef.current += 1;
+      const myToken = fetchTokenRef.current;
       nextPageCacheRef.current = null;
       fillingRef.current = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
       setPage(1);
-      laadPanden(1, filters);
+      setProperties([]);
+      laadPanden(1, filters, myToken);
       setAiGestart(false); // reset AI button when filters change
     }, 400);
     return () => clearTimeout(timer);
@@ -1596,16 +1613,7 @@ export default function App() {
     filters.heeftWebsite,
     filters.regio,
     filters.type,
-    filters.score,
-    filters.heeftAirbnb,
-    filters.heeftBooking,
-    filters.heeftFoto,
-    filters.heeftAi,
-    filters.geenAgentuur,
-    filters.filterReden,
     filters.belstatus,
-    filters.toonVerborgen,
-    filters.toonAfgewezen,
     sorteer,
   ]);
 
@@ -1690,7 +1698,10 @@ export default function App() {
   let zichtbaar = properties.filter(p => {
     // Local-only filters (not sent to server)
     if (!filters.toonVerborgen && hidden.includes(p.id)) return false;
-    if (!filters.toonAfgewezen && outcomes[p.id] === "afgewezen") return false;
+    const outcome = outcomes[p.id];
+    if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
+    if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
+    if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.score && enriched[p.id]?.score !== filters.score) return false;
     return true;
   });
@@ -1735,12 +1746,14 @@ export default function App() {
   });
 
   const isVisible = (p) => {
+    const outcome = outcomes[p.id];
     if (!filters.toonVerborgen && hidden.includes(p.id)) return false;
-    if (!filters.toonAfgewezen && outcomes[p.id] === "afgewezen") return false;
+    if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
+    if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
+    if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.score && enriched[p.id]?.score !== filters.score) return false;
 
     const ai = getCardAi(p.id, p);
-    const outcome = outcomes[p.id];
     if (filters.heeftAi && !enriched[p.id]) return false;
     if (filters.geenAgentuur) {
       const aiConfirmed = enriched[p.id]?.waarschuwingAgentuur === true;
@@ -1760,16 +1773,17 @@ export default function App() {
     nextPageCacheRef.current = null;
   }, [filters, sorteer]);
 
-  const fillPage = useCallback(async () => {
+  const fillPage = useCallback(async (currentFilters, currentSorteer) => {
     if (fillingRef.current || loading) return;
     if (!totalCount || properties.length >= totalCount) return;
+    const myToken = fetchTokenRef.current;
     fillingRef.current = true;
     try {
       let merged = [...properties];
       let visibleCount = merged.filter(isVisible).length;
       let nextPage = lastPageLoadedRef.current + 1;
       while (visibleCount < 50 && merged.length < totalCount) {
-        const data = await fetchLodgings(nextPage, 50, filters, sorteer);
+        const data = await fetchLodgings(nextPage, 50, currentFilters, currentSorteer);
         const rawList = Array.isArray(data?.data) ? data.data : [];
         if (!rawList.length) break;
         const newItems = rawList.map(item => parseLodging(item));
@@ -1779,6 +1793,7 @@ export default function App() {
         visibleCount = merged.filter(isVisible).length;
         if (merged.length >= totalCount) break;
       }
+      if (myToken !== fetchTokenRef.current) return;
       if (merged.length !== properties.length) {
         setProperties(merged);
         const groups = {};
@@ -1794,15 +1809,17 @@ export default function App() {
     } catch (e) {
       console.error("fillPage error", e);
     } finally {
-      fillingRef.current = false;
+      if (myToken === fetchTokenRef.current) {
+        fillingRef.current = false;
+      }
     }
-  }, [filters, sorteer, loading, totalCount, properties, isVisible]);
+  }, [loading, totalCount, properties, isVisible]);
 
   useEffect(() => {
     if (zichtbaar.length < 50 && zichtbaar.length < totalCount && !loading) {
-      fillPage();
+      fillPage(filters, sorteer);
     }
-  }, [zichtbaar.length, totalCount, loading, fillPage]);
+  }, [zichtbaar.length, totalCount, loading, fillPage, filters, sorteer]);
 
   // Sortering (Airbnb/Booking get extra boost so callers can contact them sooner)
   zichtbaar.sort((a, b) => {
@@ -1985,7 +2002,10 @@ export default function App() {
           <select
             className="min-w-[160px] bg-white border border-yd-border rounded-btn py-2 px-3 text-xs text-yd-black cursor-pointer outline-none focus:ring-2 focus:ring-yd-red/30"
             value={sorteer}
-            onChange={e => setSorteer(e.target.value)}
+        onChange={e => {
+          nextPageCacheRef.current = null;
+          setSorteer(e.target.value);
+        }}
           >
             <option value="score">Sorteren: AI Score</option>
             <option value="platform">Sorteren: Airbnb/Booking eerst</option>
@@ -2102,6 +2122,14 @@ export default function App() {
                 <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon afgewezen
               </label>
+              <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                <input type="checkbox" checked={filters.toonInteresse} onChange={e => setFilters(f => ({ ...f, toonInteresse: e.target.checked }))} className="rounded border-yd-border" />
+                Toon interesse
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
+                <input type="checkbox" checked={filters.toonTerugbellen} onChange={e => setFilters(f => ({ ...f, toonTerugbellen: e.target.checked }))} className="rounded border-yd-border" />
+                Toon terugbellen
+              </label>
               <button
                 type="button"
                 className="ml-auto text-xs text-yd-muted cursor-pointer underline hover:text-yd-black transition-colors"
@@ -2124,6 +2152,8 @@ export default function App() {
                     belstatus: "",
                     toonVerborgen: false,
                     toonAfgewezen: true,
+                    toonInteresse: true,
+                    toonTerugbellen: true,
                   })
                 }
               >
@@ -2341,7 +2371,9 @@ export default function App() {
             window.scrollTo({ top: 0, behavior: "smooth" });
             const next = page - 1;
             setPage(next);
-            laadPanden(next, filters);
+            fetchTokenRef.current += 1;
+            const myToken = fetchTokenRef.current;
+            laadPanden(next, filters, myToken);
           }}
         >« Vorige</button>
         <span className="text-xs text-yd-muted">~{totalCount} panden</span>
@@ -2356,6 +2388,7 @@ export default function App() {
             if (cached && cached.page === next) {
               const items = cached.items || [];
               const meta = cached.meta || {};
+              if (!items.length) return;
               setProperties(items);
               const total = Math.max(0, parseInt(meta?.total, 10) || meta?.count || items.length || 0);
               setTotalCount(total);
@@ -2373,9 +2406,11 @@ export default function App() {
               const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
               lastPageLoadedRef.current = next + pagesUsed - 1;
               nextPageCacheRef.current = null;
-              preloadNextPage(next, filters);
+              preloadNextPage(next, filters, sorteer);
             } else {
-              laadPanden(next, filters);
+              fetchTokenRef.current += 1;
+              const myToken = fetchTokenRef.current;
+              laadPanden(next, filters, myToken);
             }
           }}
         >Volgende »</button>
