@@ -65,6 +65,58 @@ async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "s
   return r.json();
 }
 
+async function fetchPagesWithFill(startPage = 1, pageSize = 50, filters = {}, sorteer = "score") {
+  let currentPage = startPage;
+  let allItems = [];
+  let meta = null;
+
+  // Safety cap: never fetch more than 10 pages in one chain
+  for (let i = 0; i < 10; i++) {
+    const data = await fetchLodgings(currentPage, pageSize, filters, sorteer);
+    const rawList = Array.isArray(data?.data) ? data.data : [];
+    const items = rawList.map(item => parseLodging(item));
+    if (!meta) meta = data.meta || {};
+    allItems = allItems.concat(items);
+
+    const total = Math.max(0, parseInt(data?.meta?.total, 10) || data?.meta?.count || allItems.length || 0);
+    const hasMore = currentPage * pageSize < total;
+
+    if (allItems.length >= pageSize || !hasMore || rawList.length === 0) break;
+    currentPage += 1;
+  }
+
+  return { items: allItems, meta };
+}
+
+async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "score") {
+  const normalized = normalizePhoneForMatch(phone);
+  const emailNorm = email?.toLowerCase().trim();
+  let page = 1;
+  const found = [];
+
+  while (page <= 10) {
+    const data = await fetchLodgings(page, 50, {}, sorteer);
+    const rawList = Array.isArray(data?.data) ? data.data : [];
+    if (!rawList.length) break;
+    const items = rawList.map(item => parseLodging(item));
+    items.forEach(p => {
+      if (currentIds.includes(p.id)) return;
+      const pPhone = normalizePhoneForMatch(p.phone);
+      const pEmail = p.email?.toLowerCase().trim();
+      if (
+        (normalized && pPhone === normalized) ||
+        (emailNorm && pEmail === emailNorm)
+      ) {
+        found.push(p.id);
+      }
+    });
+    if (items.length < 50) break;
+    page += 1;
+  }
+
+  return found;
+}
+
 // Save enrichment to server + localStorage
 async function saveEnrichment(id, data) {
   if (API_URL) {
@@ -966,17 +1018,38 @@ const SCORES = {
   KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: null, label: "KOUD" },
 };
 
+function normalizePhoneForMatch(phone) {
+  if (!phone) return null;
+  // Remove all spaces, dashes, dots, parentheses
+  let p = phone.replace(/[\s\-().]/g, "");
+  // Normalize 0032 → +32
+  p = p.replace(/^0032/, "+32");
+  // Normalize leading 0 (Belgian local) → +32
+  // e.g. 0474123456 → +32474123456
+  if (p.startsWith("0") && !p.startsWith("00")) {
+    p = "+32" + p.slice(1);
+  }
+  return p;
+}
+
 function isLikelyAgency(property, enrichedData = null) {
+  if (!property) return false;
   // If AI already flagged it, trust that
   if (enrichedData?.waarschuwingAgentuur === true) return true;
   if (enrichedData?.waarschuwingAgentuur === false) return false;
 
   // Phone prefix checks — fixed-line numbers starting with
   // 05 or +325 are almost always offices/agencies
-  const phone = (property.phone || property.phoneNorm || "")
+  const rawPhone = property.phone || property.phoneNorm || "";
+  if (!rawPhone) return false; // no phone, skip check
+
+  const phone = rawPhone
     .replace(/[\s\-().]/g, "")
     .replace(/^00/, "+")
-    .replace(/^\+?0032/, "+32");
+    .replace(/^\+?0032/, "+32")
+    .replace(/^0([^0])/, "+32$1"); // 0474... → +32474...
+
+  if (!phone) return false; // guard before startsWith
 
   const isMobile = /^\+324\d/.test(phone);
   if (!isMobile) {
@@ -987,26 +1060,38 @@ function isLikelyAgency(property, enrichedData = null) {
 
   // Email domain checks
   const email = (property.email || "").toLowerCase();
+
+  // Check full email string (before AND after @)
   const agencyEmailKeywords = [
     "immo", "vastgoed", "makelaardij", "makelaar",
     "realty", "estate", "agency", "agentuur", "beheer",
     "rental", "verhuur", "vakantie", "holiday", "tourism",
-    "booking", "reservations", "info@visit", "toerisme",
+    "booking", "reservations", "toerisme",
     "kustimmo", "coastimmo", "seaimmo",
   ];
+
+  // Split into local part (before @) and domain (after @)
+  const emailLocal = email.split("@")[0] || "";
+  const emailDomain = email.split("@")[1] || "";
+
+  // Check domain name (strip TLD first for cleaner matching)
+  const domainName = emailDomain.split(".")[0] || "";
+
   for (const kw of agencyEmailKeywords) {
-    if (email.includes(kw)) return true;
+    // Match anywhere in domain name or local part
+    if (domainName.includes(kw) || emailLocal.includes(kw)) {
+      return true;
+    }
   }
 
-  // Generic info@ or contact@ emails with agency-sounding domain
+  // Also catch generic info@/contact@ with agency domain
   if (email.startsWith("info@") || email.startsWith("contact@")) {
-    const domain = email.split("@")[1] || "";
     const genericDomains = [
       "vakantiewoning", "holiday", "rental", "verhuur",
       "beheer", "immo", "realty",
     ];
     for (const kw of genericDomains) {
-      if (domain.includes(kw)) return true;
+      if (emailDomain.includes(kw)) return true;
     }
   }
 
@@ -1284,6 +1369,9 @@ export default function App() {
   const [dbTotalCount, setDbTotalCount] = useState(0);
   const [phoneGroups, setPhoneGroups] = useState({}); // phoneNorm -> [ids]
   const enrichBatchRef = useRef(0); // verhoogt bij elke nieuwe Start AI, om oude batches stil te leggen
+  const nextPageCacheRef = useRef(null);
+  const fillingRef = useRef(false);
+  const lastPageLoadedRef = useRef(1);
   // Monday config
   const [mondayCfg, setMondayCfg] = useState(() => ({
     apiKey:        loadCfg("monday_key"),
@@ -1335,28 +1423,48 @@ export default function App() {
     } catch (_) {}
   }, []);
 
+  async function preloadNextPage(basePage, currentFilters = null) {
+    const filtersToUse = currentFilters || filters;
+    const next = basePage + 1;
+    try {
+      const result = await fetchPagesWithFill(next, 50, filtersToUse, sorteer);
+      if (!result.items.length) {
+        nextPageCacheRef.current = null;
+        return;
+      }
+      nextPageCacheRef.current = { page: next, items: result.items, meta: result.meta };
+    } catch {
+      nextPageCacheRef.current = null;
+    }
+  }
+
   // Laad panden + start meteen batch verrijking
   const laadPanden = useCallback(async (p = 1, currentFilters = null) => {
     setLoading(true); setError(null);
     try {
-      const data = await fetchLodgings(p, 50, currentFilters || {}, sorteer);
-      const rawList = Array.isArray(data?.data) ? data.data : [];
-      const items = rawList.map(item => parseLodging(item));
+      const { items, meta } = await fetchPagesWithFill(p, 50, currentFilters || {}, sorteer);
       setProperties(items);
-      const total = Math.max(0, parseInt(data?.meta?.total, 10) || data?.meta?.count || items.length || 0);
+      const total = Math.max(0, parseInt(meta?.total, 10) || meta?.count || items.length || 0);
       setTotalCount(total);
-      const dbTotal = Math.max(0, parseInt(data?.meta?.dbTotal, 10) || 0);
+      const dbTotal = Math.max(0, parseInt(meta?.dbTotal, 10) || 0);
       if (dbTotal) setDbTotalCount(dbTotal);
       const groups = {};
       items.forEach(it => {
-        if (it.phoneNorm) {
-          if (!groups[it.phoneNorm]) groups[it.phoneNorm] = [];
-          groups[it.phoneNorm].push(it.id);
+        const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
+        if (key) {
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(it.id);
         }
       });
       setPhoneGroups(groups);
       if (items.length > 0 && !selected) setSelected(items[0]);
-
+      const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
+      lastPageLoadedRef.current = p + pagesUsed - 1;
+      if (p * 50 < total) {
+        preloadNextPage(p, currentFilters || filters);
+      } else {
+        nextPageCacheRef.current = null;
+      }
     } catch (e) {
       if (e.message === "401") {
         setUser(null); // shows login screen
@@ -1365,7 +1473,7 @@ export default function App() {
       }
     }
     finally { setLoading(false); }
-  }, []);
+  }, [filters, sorteer, selected]);
 
   // Batch verrijking - laadt alle panden van de pagina 3 tegelijk op
   const startBatchEnrich = useCallback((items, groups, priorityIds = null) => {
@@ -1468,20 +1576,55 @@ export default function App() {
   useEffect(() => {
     if (!API_URL) return; // client-side filtering only when no server
     const timer = setTimeout(() => {
+      nextPageCacheRef.current = null;
+      fillingRef.current = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
       setPage(1);
       laadPanden(1, filters);
       setAiGestart(false); // reset AI button when filters change
     }, 400);
     return () => clearTimeout(timer);
-  }, [filters.zoek, filters.gemeente, filters.provincie, filters.status, filters.minSlaap, filters.maxSlaap, filters.heeftTelefoon, filters.heeftEmail, filters.heeftWebsite, filters.regio, filters.type, sorteer]);
+  }, [
+    filters.zoek,
+    filters.gemeente,
+    filters.provincie,
+    filters.status,
+    filters.minSlaap,
+    filters.maxSlaap,
+    filters.heeftTelefoon,
+    filters.heeftEmail,
+    filters.heeftWebsite,
+    filters.regio,
+    filters.type,
+    filters.score,
+    filters.heeftAirbnb,
+    filters.heeftBooking,
+    filters.heeftFoto,
+    filters.heeftAi,
+    filters.geenAgentuur,
+    filters.filterReden,
+    filters.belstatus,
+    filters.toonVerborgen,
+    filters.toonAfgewezen,
+    sorteer,
+  ]);
 
-  // Verberg pand + alle panden met zelfde telefoon als afgewezen
+  // Verberg pand + alle panden met zelfde telefoon/email als afgewezen
   const verbergPand = useCallback((id, reden = "verborgen") => {
     const prop = properties.find(p => p.id === id);
     let toHide = [id];
     if (reden === "afgewezen" && prop?.phoneNorm) {
-      const groep = phoneGroups[prop.phoneNorm] || [];
+      const normKey = prop.phoneNorm || normalizePhoneForMatch(prop.phone);
+      const groep = normKey ? (phoneGroups[normKey] || []) : [];
       if (groep.length > 1) toHide = groep; // wis alle met zelfde nr
+      const emailNorm = prop?.email?.toLowerCase().trim();
+      if (emailNorm) {
+        properties.forEach(p => {
+          if (p.email?.toLowerCase().trim() === emailNorm && !toHide.includes(p.id)) {
+            toHide.push(p.id);
+          }
+        });
+      }
     }
     const newHidden = [...new Set([...hidden, ...toHide])];
     setHidden(newHidden);
@@ -1490,7 +1633,43 @@ export default function App() {
     toHide.forEach(hid => { newOut[hid] = reden; });
     setOutcomes(newOut);
     save("outcomes", newOut);
-  }, [properties, phoneGroups, hidden, outcomes]);
+    if (reden === "afgewezen" && toHide.length > 1) {
+      console.log(`Automatisch afgewezen voor ${toHide.length - 1} extra pand(en) op basis van telefoon/e-mail.`);
+    }
+
+    // Zoek in de volledige database naar duplicaten op telefoon/e-mail (asynchroon, stilletjes)
+    if (reden === "afgewezen" && prop) {
+      const phoneRaw = prop.phone || prop.phoneNorm || null;
+      const emailRaw = prop.email || null;
+      (async () => {
+        try {
+          const extraIds = await findDuplicatesAcrossDB(phoneRaw, emailRaw, toHide, sorteer);
+          if (!extraIds.length) return;
+          setHidden(prevHidden => {
+            const mergedHidden = [...new Set([...prevHidden, ...extraIds])];
+            save("hidden", mergedHidden);
+            return mergedHidden;
+          });
+          setOutcomes(prevOut => {
+            const updated = { ...prevOut };
+            extraIds.forEach(hid => {
+              updated[hid] = "afgewezen";
+            });
+            save("outcomes", updated);
+            return updated;
+          });
+          extraIds.forEach(hid => {
+            const note = notes[hid] || "";
+            const contactNaam = load("contactnamen", {})[hid] || "";
+            saveOutcomeToServer(hid, "afgewezen", note, contactNaam).catch(() => {});
+          });
+          console.log(`Automatisch afgewezen voor ${extraIds.length} extra pand(en) op basis van telefoon/e-mail in volledige database.`);
+        } catch (e) {
+          console.error("Fout bij zoeken naar dubbele panden in DB:", e);
+        }
+      })();
+    }
+  }, [properties, phoneGroups, hidden, outcomes, sorteer, notes]);
 
 
 
@@ -1554,6 +1733,76 @@ export default function App() {
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
     return true;
   });
+
+  const isVisible = (p) => {
+    if (!filters.toonVerborgen && hidden.includes(p.id)) return false;
+    if (!filters.toonAfgewezen && outcomes[p.id] === "afgewezen") return false;
+    if (filters.score && enriched[p.id]?.score !== filters.score) return false;
+
+    const ai = getCardAi(p.id, p);
+    const outcome = outcomes[p.id];
+    if (filters.heeftAi && !enriched[p.id]) return false;
+    if (filters.geenAgentuur) {
+      const aiConfirmed = enriched[p.id]?.waarschuwingAgentuur === true;
+      const heuristicFlag = isLikelyAgency(p, enriched[p.id] || null);
+      const bulkPhone = p.phoneNorm &&
+        (phoneGroups[p.phoneNorm]?.length || 0) >= 4;
+      if (aiConfirmed || heuristicFlag || bulkPhone) return false;
+    }
+    if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
+    if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
+    if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
+    return true;
+  };
+
+  useEffect(() => {
+    // Invalidate next-page cache when filters of sortering veranderen
+    nextPageCacheRef.current = null;
+  }, [filters, sorteer]);
+
+  const fillPage = useCallback(async () => {
+    if (fillingRef.current || loading) return;
+    if (!totalCount || properties.length >= totalCount) return;
+    fillingRef.current = true;
+    try {
+      let merged = [...properties];
+      let visibleCount = merged.filter(isVisible).length;
+      let nextPage = lastPageLoadedRef.current + 1;
+      while (visibleCount < 50 && merged.length < totalCount) {
+        const data = await fetchLodgings(nextPage, 50, filters, sorteer);
+        const rawList = Array.isArray(data?.data) ? data.data : [];
+        if (!rawList.length) break;
+        const newItems = rawList.map(item => parseLodging(item));
+        merged = merged.concat(newItems);
+        lastPageLoadedRef.current = nextPage;
+        nextPage += 1;
+        visibleCount = merged.filter(isVisible).length;
+        if (merged.length >= totalCount) break;
+      }
+      if (merged.length !== properties.length) {
+        setProperties(merged);
+        const groups = {};
+        merged.forEach(it => {
+          const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
+          if (key) {
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(it.id);
+          }
+        });
+        setPhoneGroups(groups);
+      }
+    } catch (e) {
+      console.error("fillPage error", e);
+    } finally {
+      fillingRef.current = false;
+    }
+  }, [filters, sorteer, loading, totalCount, properties, isVisible]);
+
+  useEffect(() => {
+    if (zichtbaar.length < 50 && zichtbaar.length < totalCount && !loading) {
+      fillPage();
+    }
+  }, [zichtbaar.length, totalCount, loading, fillPage]);
 
   // Sortering (Airbnb/Booking get extra boost so callers can contact them sooner)
   zichtbaar.sort((a, b) => {
@@ -2088,13 +2337,47 @@ export default function App() {
           type="button"
           className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-yd-bg transition-colors duration-150"
           disabled={page <= 1}
-          onClick={() => { const next = page - 1; setPage(next); laadPanden(next, filters); }}
+          onClick={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            const next = page - 1;
+            setPage(next);
+            laadPanden(next, filters);
+          }}
         >« Vorige</button>
         <span className="text-xs text-yd-muted">~{totalCount} panden</span>
         <button
           type="button"
           className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm hover:bg-yd-bg transition-colors duration-150"
-          onClick={() => { const next = page + 1; setPage(next); laadPanden(next, filters); }}
+          onClick={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            const next = page + 1;
+            setPage(next);
+            const cached = nextPageCacheRef.current;
+            if (cached && cached.page === next) {
+              const items = cached.items || [];
+              const meta = cached.meta || {};
+              setProperties(items);
+              const total = Math.max(0, parseInt(meta?.total, 10) || meta?.count || items.length || 0);
+              setTotalCount(total);
+              const dbTotal = Math.max(0, parseInt(meta?.dbTotal, 10) || 0);
+              if (dbTotal) setDbTotalCount(dbTotal);
+              const groups = {};
+              items.forEach(it => {
+                if (it.phoneNorm) {
+                  if (!groups[it.phoneNorm]) groups[it.phoneNorm] = [];
+                  groups[it.phoneNorm].push(it.id);
+                }
+              });
+              setPhoneGroups(groups);
+              if (items.length > 0) setSelected(items[0]);
+              const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
+              lastPageLoadedRef.current = next + pagesUsed - 1;
+              nextPageCacheRef.current = null;
+              preloadNextPage(next, filters);
+            } else {
+              laadPanden(next, filters);
+            }
+          }}
         >Volgende »</button>
       </div>
     </div>
