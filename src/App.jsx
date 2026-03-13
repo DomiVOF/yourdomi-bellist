@@ -1388,7 +1388,7 @@ export default function App() {
   const [interessePopupProp, setInteressePopupProp] = useState(null); // card Interesse popup
 
   // -- FILTERS --
-  const [filters, setFilters] = useState({
+  const initialFilters = {
     zoek: "",
     gemeente: "",
     provincie: "",
@@ -1408,7 +1408,9 @@ export default function App() {
     toonAfgewezen: true,
     toonInteresse: true,
     toonTerugbellen: true,
-  });
+  };
+  const [filters, setFilters] = useState(initialFilters);       // toegepast op lijst + server
+  const [rawFilters, setRawFilters] = useState(initialFilters); // live UI-waarden
   const [filterOpen, setFilterOpen] = useState(false);
   const [sorteer, setSorteer] = useState("score"); // score | naam | slaap | gemeente
   const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table"
@@ -1488,6 +1490,19 @@ export default function App() {
       }
     }
   }, [filters, sorteer, selected]);
+
+  const applyFilters = (nextFilters) => {
+    fetchTokenRef.current += 1;
+    const myToken = fetchTokenRef.current;
+    nextPageCacheRef.current = null;
+    fillingRef.current = false;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setPage(1);
+    setProperties([]);
+    setFilters(nextFilters);
+    laadPanden(1, nextFilters, myToken);
+    setAiGestart(false);
+  };
 
   // Batch verrijking - laadt alle panden van de pagina 3 tegelijk op
   const startBatchEnrich = useCallback((items, groups, priorityIds = null) => {
@@ -1585,37 +1600,6 @@ export default function App() {
     }
     laadPanden(1);
   }, [laadPanden, loadHealth]);
-
-  // Re-fetch from server when filters change (debounced 400ms)
-  useEffect(() => {
-    if (!API_URL) return; // client-side filtering only when no server
-    const timer = setTimeout(() => {
-      fetchTokenRef.current += 1;
-      const myToken = fetchTokenRef.current;
-      nextPageCacheRef.current = null;
-      fillingRef.current = false;
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      setPage(1);
-      setProperties([]);
-      laadPanden(1, filters, myToken);
-      setAiGestart(false); // reset AI button when filters change
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [
-    filters.zoek,
-    filters.gemeente,
-    filters.provincie,
-    filters.status,
-    filters.minSlaap,
-    filters.maxSlaap,
-    filters.heeftTelefoon,
-    filters.heeftEmail,
-    filters.heeftWebsite,
-    filters.regio,
-    filters.type,
-    filters.belstatus,
-    sorteer,
-  ]);
 
   // Verberg pand + alle panden met zelfde telefoon/email als afgewezen
   const verbergPand = useCallback((id, reden = "verborgen") => {
@@ -1980,8 +1964,8 @@ export default function App() {
           <input
             className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-input py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red transition-shadow"
             placeholder="Zoeken op naam, gemeente, postcode..."
-            value={filters.zoek}
-            onChange={e => setFilters(f => ({ ...f, zoek: e.target.value }))}
+            value={rawFilters.zoek}
+            onChange={e => setRawFilters(f => ({ ...f, zoek: e.target.value }))}
           />
           <div className="flex items-center gap-1">
             <button
@@ -2034,33 +2018,39 @@ export default function App() {
           >
             {enrichingIds.size > 0 ? "AI bezig..." : aiGestart ? "AI gestart ✓" : "Start AI"}
           </button>
-          <button type="button" className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150" onClick={() => laadPanden(page, filters)}>Zoeken</button>
+          <button
+            type="button"
+            className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150"
+            onClick={() => applyFilters(rawFilters)}
+          >
+            Zoeken
+          </button>
         </div>
 
         {filterOpen && (
           <div className="pt-3 pb-4 px-4 border-t border-yd-border bg-yd-bg">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-2">
-              <FilterSelect label="Score" value={filters.score} onChange={v => setFilters(f => ({ ...f, score: v }))}
+              <FilterSelect label="Score" value={rawFilters.score} onChange={v => setRawFilters(f => ({ ...f, score: v }))}
                 options={[["", "Alle scores"], ["HEET", "🔥 Heet"], ["WARM", "W Warm"], ["KOUD", "K Koud"]]} />
-              <FilterSelect label="Provincie" value={filters.provincie} onChange={v => setFilters(f => ({ ...f, provincie: v }))}
+              <FilterSelect label="Provincie" value={rawFilters.provincie} onChange={v => setRawFilters(f => ({ ...f, provincie: v }))}
                 options={[["", "Alle provincies"], ...(meta.provinces.length ? meta.provinces : uniekeProvincies).map(p => [p, p])]} />
-              <FilterSelect label="Toeristische regio" value={filters.regio} onChange={v => setFilters(f => ({ ...f, regio: v }))}
+              <FilterSelect label="Toeristische regio" value={rawFilters.regio} onChange={v => setRawFilters(f => ({ ...f, regio: v }))}
                 options={[["", "Alle regio's"], ...meta.regios.map(r => [r, r])]} />
-              <FilterSelect label="Type accommodatie" value={filters.type} onChange={v => setFilters(f => ({ ...f, type: v }))}
+              <FilterSelect label="Type accommodatie" value={rawFilters.type} onChange={v => setRawFilters(f => ({ ...f, type: v }))}
                 options={[["", "Alle types"], ...meta.types.map(t => [t, t])]} />
-              <FilterSelect label="Status" value={filters.status} onChange={v => setFilters(f => ({ ...f, status: v }))}
+              <FilterSelect label="Status" value={rawFilters.status} onChange={v => setRawFilters(f => ({ ...f, status: v }))}
                 options={[["", "Alle statussen"], ["aangemeld", "Aangemeld"], ["erkend", "Erkend"], ["vergund", "Vergund"]]} />
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Gemeente</label>
-                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" placeholder="bv. Gent" value={filters.gemeente} onChange={e => setFilters(f => ({ ...f, gemeente: e.target.value }))} />
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" placeholder="bv. Gent" value={rawFilters.gemeente} onChange={e => setRawFilters(f => ({ ...f, gemeente: e.target.value }))} />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Min. slaapplaatsen</label>
-                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="0" value={filters.minSlaap} onChange={e => setFilters(f => ({ ...f, minSlaap: e.target.value }))} />
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="0" value={rawFilters.minSlaap} onChange={e => setRawFilters(f => ({ ...f, minSlaap: e.target.value }))} />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Max. slaapplaatsen</label>
-                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="inf" value={filters.maxSlaap} onChange={e => setFilters(f => ({ ...f, maxSlaap: e.target.value }))} />
+                <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="inf" value={rawFilters.maxSlaap} onChange={e => setRawFilters(f => ({ ...f, maxSlaap: e.target.value }))} />
               </div>
             </div>
 
@@ -2068,15 +2058,15 @@ export default function App() {
               <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-2">Contactgegevens aanwezig</div>
               <div className="flex gap-4 items-center flex-wrap">
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                  <input type="checkbox" checked={filters.heeftTelefoon} onChange={e => setFilters(f => ({ ...f, heeftTelefoon: e.target.checked }))} className="rounded border-yd-border" />
+                  <input type="checkbox" checked={rawFilters.heeftTelefoon} onChange={e => setRawFilters(f => ({ ...f, heeftTelefoon: e.target.checked }))} className="rounded border-yd-border" />
                   Telefoon
                 </label>
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                  <input type="checkbox" checked={filters.heeftEmail} onChange={e => setFilters(f => ({ ...f, heeftEmail: e.target.checked }))} className="rounded border-yd-border" />
+                  <input type="checkbox" checked={rawFilters.heeftEmail} onChange={e => setRawFilters(f => ({ ...f, heeftEmail: e.target.checked }))} className="rounded border-yd-border" />
                   E-mail
                 </label>
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                  <input type="checkbox" checked={filters.heeftWebsite} onChange={e => setFilters(f => ({ ...f, heeftWebsite: e.target.checked }))} className="rounded border-yd-border" />
+                  <input type="checkbox" checked={rawFilters.heeftWebsite} onChange={e => setRawFilters(f => ({ ...f, heeftWebsite: e.target.checked }))} className="rounded border-yd-border" />
                   Website
                 </label>
               </div>
@@ -2087,8 +2077,8 @@ export default function App() {
               <div className="flex gap-4 items-center flex-wrap">
                 <FilterSelect
                   label=""
-                  value={filters.belstatus}
-                  onChange={v => setFilters(f => ({ ...f, belstatus: v }))}
+                  value={rawFilters.belstatus}
+                  onChange={v => setRawFilters(f => ({ ...f, belstatus: v }))}
                   options={[
                     ["", "Alle statussen"],
                     ["terugbellen", "Terugbellen"],
@@ -2102,11 +2092,11 @@ export default function App() {
               <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-1">AI-signalen</div>
               <div className="flex gap-4 items-center flex-wrap">
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                  <input type="checkbox" checked={filters.heeftAi} onChange={e => setFilters(f => ({ ...f, heeftAi: e.target.checked }))} className="rounded border-yd-border" />
+                  <input type="checkbox" checked={rawFilters.heeftAi} onChange={e => setRawFilters(f => ({ ...f, heeftAi: e.target.checked }))} className="rounded border-yd-border" />
                   Alleen AI-gescand
                 </label>
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer" title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
-                  <input type="checkbox" checked={filters.geenAgentuur} onChange={e => setFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} className="rounded border-yd-border" />
+                  <input type="checkbox" checked={rawFilters.geenAgentuur} onChange={e => setRawFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} className="rounded border-yd-border" />
                   Geen agentuur/makelaar
                 </label>
               </div>
@@ -2115,46 +2105,29 @@ export default function App() {
             <div className="pt-2.5 mt-1 border-t border-yd-border flex items-center gap-4 flex-wrap">
               <span className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Zichtbaarheid</span>
               <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                <input type="checkbox" checked={filters.toonVerborgen} onChange={e => setFilters(f => ({ ...f, toonVerborgen: e.target.checked }))} className="rounded border-yd-border" />
+                <input type="checkbox" checked={rawFilters.toonVerborgen} onChange={e => setRawFilters(f => ({ ...f, toonVerborgen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon verborgen
               </label>
               <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                <input type="checkbox" checked={filters.toonAfgewezen} onChange={e => setFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} className="rounded border-yd-border" />
+                <input type="checkbox" checked={rawFilters.toonAfgewezen} onChange={e => setRawFilters(f => ({ ...f, toonAfgewezen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon afgewezen
               </label>
               <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                <input type="checkbox" checked={filters.toonInteresse} onChange={e => setFilters(f => ({ ...f, toonInteresse: e.target.checked }))} className="rounded border-yd-border" />
+                <input type="checkbox" checked={rawFilters.toonInteresse} onChange={e => setRawFilters(f => ({ ...f, toonInteresse: e.target.checked }))} className="rounded border-yd-border" />
                 Toon interesse
               </label>
               <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                <input type="checkbox" checked={filters.toonTerugbellen} onChange={e => setFilters(f => ({ ...f, toonTerugbellen: e.target.checked }))} className="rounded border-yd-border" />
+                <input type="checkbox" checked={rawFilters.toonTerugbellen} onChange={e => setRawFilters(f => ({ ...f, toonTerugbellen: e.target.checked }))} className="rounded border-yd-border" />
                 Toon terugbellen
               </label>
               <button
                 type="button"
                 className="ml-auto text-xs text-yd-muted cursor-pointer underline hover:text-yd-black transition-colors"
                 onClick={() =>
-                  setFilters({
-                    zoek: "",
-                    gemeente: "",
-                    provincie: "",
-                    status: "",
-                    minSlaap: "",
-                    maxSlaap: "",
-                    score: "",
-                    regio: "",
-                    type: "",
-                    heeftWebsite: false,
-                    heeftTelefoon: false,
-                    heeftEmail: false,
-                    heeftAi: false,
-                    geenAgentuur: false,
-                    belstatus: "",
-                    toonVerborgen: false,
-                    toonAfgewezen: true,
-                    toonInteresse: true,
-                    toonTerugbellen: true,
-                  })
+                  {
+                    setRawFilters(initialFilters);
+                    applyFilters(initialFilters);
+                  }
                 }
               >
                 Filters wissen
