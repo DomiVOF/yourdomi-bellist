@@ -782,6 +782,10 @@ Rules:
 
 async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInUser) {
   const dealsBoardId = "5092514219"; // Railway: MONDAY_BOARD_ID
+  const contactBoardId = "5092514217";
+  const accountBoardId = "44692286";
+
+  const normalizedOutcome = outcome === "interesse" ? "gebeld_interesse" : outcome; // UI uses both; normalize for Monday rules
 
   // 1. Fetch columns + Monday users in parallel
   const UNSUPPORTED = ["mirror","lookup","formula","button","dependency","auto_number","creation_log","last_updated","item_id","board_relation","subtasks"];
@@ -809,7 +813,15 @@ async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInU
   const probMap     = { gebeld_interesse:60, callback:20, terugbellen:20, afgewezen:0 };
 
   // 3. Run AI to analyse notes + decide which columns to set and with what values
-  const followUp = note ? await extractFollowUp(note, outcome) : null;
+  const followUpBase = note ? await extractFollowUp(note, normalizedOutcome) : null;
+  const hasInfoMailKeyword = typeof note === "string" && /\binfomail\b/i.test(note);
+  const followUp = hasInfoMailKeyword
+    ? {
+        ...(followUpBase || {}),
+        stage: "Infomail send",
+        nextStep: "Follow-up",
+      }
+    : followUpBase;
 
   // 4. Use AI to auto-map property data to board columns
   const aiResp = await fetch(API_URL + "/api/ai", {
@@ -838,9 +850,9 @@ PROPERTY DATA:
 - Address: ${[property.street, property.postalCode, property.municipality].filter(Boolean).join(", ")}
 - Rooms/sleepplaces: ${property.sleepPlaces || property.slaapplaatsen || ""}
 - Call outcome: ${outcome}
-- Stage to set: ${followUp?.stage || stageMap[outcome] || "New / Meeting Planned"}
-- Next step to set: ${followUp?.nextStep || nextStepMap[outcome] || "Follow-up"}
-- Close probability: ${probMap[outcome] ?? 20}
+- Stage to set: ${followUp?.stage || stageMap[normalizedOutcome] || "New / Meeting Planned"}
+- Next step to set: ${followUp?.nextStep || nextStepMap[normalizedOutcome] || "Follow-up"}
+- Close probability: ${probMap[normalizedOutcome] ?? 20}
 - Follow-up date: ${followUp?.followUpDate || ""}
 - Type: Beheer
 - Call notes: ${note || ""}
@@ -879,20 +891,105 @@ Only include columns where you have a real value. Skip columns you can't confide
 
   const dealNaam = `${property.name}${property.municipality ? ` - ${property.municipality}` : ""}`;
 
-  // Ensure "New - to be confirmed" group exists
-  const groupId = await getOrCreateGroup(dealsBoardId, "New - to be confirmed");
-
-  const dealId = await upsertItem(dealsBoardId, dealNaam, vals, groupId);
+  // IMPORTANT: Do not create new deal rows on the Ongoing Deals board.
+  // Rows already exist; we only update an existing item.
+  const existingDeal = await findItemByName(dealsBoardId, dealNaam);
+  const dealId = existingDeal?.id;
 
   if (dealId) {
+    // 5) Upsert Contact + Account on their boards, then link them to the deal row.
+    let createdContactId = null;
+    let createdAccountId = null;
+    try {
+      const [dealColsAll, contactColsAll, accountColsAll] = await Promise.all([
+        getMondayColumns(dealsBoardId),
+        getMondayColumns(contactBoardId),
+        getMondayColumns(accountBoardId),
+      ]);
+      const dealColByTitle = Object.fromEntries((dealColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
+      const contactColByTitle = Object.fromEntries((contactColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
+      const accountColByTitle = Object.fromEntries((accountColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
+
+      // Contact: create/update item by name (must exist first, then fill fields)
+      const contactNameFinal = (contactNaam || "").trim();
+      if (contactNameFinal) {
+        const statusLabel =
+          normalizedOutcome === "gebeld_interesse" ? "Interesse"
+            : (normalizedOutcome === "callback" || normalizedOutcome === "terugbellen") ? "Terugbellen"
+              : normalizedOutcome === "afgewezen" ? "Afgewezen"
+                : "Lead";
+
+        const contactVals = {};
+        if (contactColByTitle["status"]) contactVals[contactColByTitle["status"]] = { label: statusLabel };
+        if (contactColByTitle["telefoon"] && property.phone) contactVals[contactColByTitle["telefoon"]] = { phone: property.phone, countryShortName: "BE" };
+        if (contactColByTitle["e-mail"] && property.email) contactVals[contactColByTitle["e-mail"]] = property.email;
+        if (contactColByTitle["pand"]) contactVals[contactColByTitle["pand"]] = property.name || "";
+
+        createdContactId = await upsertItem(contactBoardId, contactNameFinal, contactVals, null);
+      }
+
+      // Account: create/update item by property name; fill link/address if columns exist
+      const accountNameFinal = (property.name || "").trim();
+      if (accountNameFinal) {
+        const fullAddress = [property.street, property.postalCode, property.municipality].filter(Boolean).join(", ");
+        const websiteUrl = (property.website || ai?.directWebsite?.url || "").trim();
+        const accountVals = {};
+        // Common column titles in your board: "Headquarters location" (location) and "Link" (link)
+        if (accountColByTitle["headquarters location"] && fullAddress) {
+          accountVals[accountColByTitle["headquarters location"]] = { address: fullAddress, city: property.municipality || "", country: "Belgium" };
+        }
+        if (accountColByTitle["link"] && websiteUrl) {
+          accountVals[accountColByTitle["link"]] = { url: websiteUrl.startsWith("http") ? websiteUrl : `https://${websiteUrl}`, text: "Website" };
+        }
+        if (accountColByTitle["phone"] && property.phone) {
+          accountVals[accountColByTitle["phone"]] = { phone: property.phone, countryShortName: "BE" };
+        }
+
+        createdAccountId = await upsertItem(accountBoardId, accountNameFinal, accountVals, null);
+      }
+
+      // Link to deal row via connect boards columns on the deal board ("Accounts", "Contacts")
+      const accountsColId = dealColByTitle["accounts"];
+      const contactsColId = dealColByTitle["contacts"];
+      if (accountsColId && createdAccountId) {
+        await mondayGraphQL(
+          `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
+          { bid: dealsBoardId, iid: dealId, col: accountsColId, val: JSON.stringify({ item_ids: [parseInt(createdAccountId, 10)] }) }
+        );
+      }
+      if (contactsColId && createdContactId) {
+        await mondayGraphQL(
+          `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
+          { bid: dealsBoardId, iid: dealId, col: contactsColId, val: JSON.stringify({ item_ids: [parseInt(createdContactId, 10)] }) }
+        );
+      }
+    } catch (e) {
+      console.warn("Contact/account sync + linking mislukt:", e?.message || e);
+    }
+
+    // 6) Move deal to "Ongoing Projects" group after successful interest push
+    try {
+      if (normalizedOutcome === "gebeld_interesse") {
+        const ongoingGroupId = await getOrCreateGroup(dealsBoardId, "Ongoing Projects");
+        if (ongoingGroupId) {
+          await mondayGraphQL(
+            `mutation($iid:ID!, $gid:String!) { move_item_to_group(item_id:$iid, group_id:$gid) { id } }`,
+            { iid: dealId, gid: ongoingGroupId }
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("Deal move naar Ongoing Projects mislukt:", e?.message || e);
+    }
+
     const plat = [
       ai?.airbnb?.gevonden  && `Airbnb: ${ai.airbnb.url || "gevonden"}`,
       ai?.booking?.gevonden && `Booking: ${ai.booking.url || "gevonden"}`,
       ai?.directWebsite?.gevonden && `${ai.directWebsite.url || "eigen website"}`,
     ].filter(Boolean).join(" | ");
 
-    const uitkomstLabel = outcome === "gebeld_interesse" ? "✅ Interesse - afspraak plannen"
-      : outcome === "callback" || outcome === "terugbellen" ? "🔄 Terugbellen"
+    const uitkomstLabel = normalizedOutcome === "gebeld_interesse" ? "✅ Interesse - afspraak plannen"
+      : normalizedOutcome === "callback" || normalizedOutcome === "terugbellen" ? "🔄 Terugbellen"
       : "❌ Afgewezen";
 
     const updateBody = [
@@ -1359,6 +1456,7 @@ export default function App() {
   const [platformScan, setPlatformScan] = useState({}); // id -> { website, airbnb, booking } from background scan
   const [outcomes, setOutcomes] = useState(() => load("outcomes", {}));
   const [notes, setNotes] = useState(() => load("notes", {}));
+  const [contactNamen, setContactNamen] = useState(() => load("contactnamen", {})); // id -> contact name
   const [hidden, setHidden] = useState(() => load("hidden", [])); // manual hide
   const [selected, setSelected] = useState(null);
   const [listSnapshot, setListSnapshot] = useState(null); // preserve applied filters when navigating to dossier
@@ -1511,7 +1609,12 @@ export default function App() {
     enrichBatchRef.current += 1;
     const myBatch = enrichBatchRef.current;
     const cached = load("enriched", {});
-    let toEnrich = items.filter(p => !cached[p.id]);
+    // Only enrich properties that (a) are not cached yet and (b) have a phone number
+    let toEnrich = items.filter(p => {
+      if (cached[p.id]) return false;
+      const hasPhone = !!(p.phoneNorm || normalizePhoneForMatch(p.phone));
+      return hasPhone;
+    });
     // If priority list given, enrich those first
     if (priorityIds && priorityIds.length > 0) {
       const priSet = new Set(priorityIds);
@@ -1592,6 +1695,7 @@ export default function App() {
           }
           setOutcomes(outMap);
           setNotes(notesMap);
+          setContactNamen(contactMap);
           save("outcomes", outMap);
           save("notes", notesMap);
           save("contactnamen", contactMap);
@@ -1653,7 +1757,7 @@ export default function App() {
           });
           extraIds.forEach(hid => {
             const note = notes[hid] || "";
-            const contactNaam = load("contactnamen", {})[hid] || "";
+            const contactNaam = contactNamen[hid] || "";
             saveOutcomeToServer(hid, "afgewezen", note, contactNaam).catch(() => {});
           });
           console.log(`Automatisch afgewezen voor ${extraIds.length} extra pand(en) op basis van telefoon/e-mail in volledige database.`);
@@ -1662,7 +1766,7 @@ export default function App() {
         }
       })();
     }
-  }, [properties, phoneGroups, hidden, outcomes, sorteer, notes]);
+  }, [properties, phoneGroups, hidden, outcomes, sorteer, notes, contactNamen]);
 
 
 
@@ -1675,9 +1779,9 @@ export default function App() {
   const slaUitkomstOp = useCallback((id, val) => {
     const updated = { ...outcomes, [id]: val };
     setOutcomes(updated); save("outcomes", updated);
-    saveOutcomeToServer(id, val, notes[id] || "", load("contactnamen", {})[id] || "").catch(() => {});
+    saveOutcomeToServer(id, val, notes[id] || "", contactNamen[id] || "").catch(() => {});
     // Monday push only via manual button - not automatic
-  }, [outcomes, mondayActief, mondayCfg, properties, enriched, notes]);
+  }, [outcomes, mondayActief, mondayCfg, properties, enriched, notes, contactNamen]);
 
   // Gefilterde + gesorteerde lijst
   let zichtbaar = properties.filter(p => {
@@ -1925,7 +2029,7 @@ export default function App() {
           const ai = enriched[prop.id];
           const outcome = outcomes[prop.id];
           const note = notes[prop.id] || "";
-          const contactNaam = load("contactnamen", {})[prop.id] || prop.name;
+          const contactNaam = contactNamen[prop.id] || prop.name;
           setMondaySyncing(s => new Set([...s, prop.id]));
           setMondayStatus(s => ({ ...s, [prop.id]: "bezig" }));
           syncMondayCRM(prop, ai, outcome, note, contactNaam, user?.username)
@@ -1934,10 +2038,11 @@ export default function App() {
             .finally(() => setMondaySyncing(s => { const n = new Set(s); n.delete(prop.id); return n; }));
         }}
         onSaveContactNaam={(naam) => {
-          const updated = { ...load("contactnamen", {}), [selected.id]: naam };
+          const updated = { ...contactNamen, [selected.id]: naam };
+          setContactNamen(updated);
           save("contactnamen", updated);
         }}
-        contactNaam={load("contactnamen", {})[selected.id] || ""}
+        contactNaam={contactNamen[selected.id] || ""}
       />
     );
   }
@@ -2345,7 +2450,7 @@ export default function App() {
                     const ai = enriched[prop.id];
                     const outcome = outcomes[prop.id];
                     const note = notes[prop.id] || "";
-                    const contactNaam = load("contactnamen", {})[prop.id] || prop.name;
+                    const contactNaam = contactNamen[prop.id] || prop.name;
                     setMondaySyncing(s => new Set([...s, prop.id]));
                     setMondayStatus(s => ({ ...s, [prop.id]: "bezig" }));
                     syncMondayCRM(prop, ai, outcome, note, contactNaam, user?.username)
