@@ -903,16 +903,8 @@ Only include columns where you have a real value. Skip columns you can't confide
   const dealId = createRes.create_item?.id || null;
   if (!dealId) throw new Error("Deal rij kon niet worden aangemaakt in Monday.");
 
-  // Update the deal row with AI-mapped column values
-  if (vals && Object.keys(vals).length > 0) {
-    await mondayGraphQL(
-      `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
-      { bid: dealsBoardId, iid: dealId, cv: JSON.stringify(vals) }
-    );
-  }
-
   {
-    // 5) Upsert Contact + Account on their boards, then link them to the deal row.
+    // 4b) Update deal row columns (met veilige stage-waarde) + upsert Contact/Account, dan linken.
     try {
       const [dealColsAll, contactColsAll, accountColsAll] = await Promise.all([
         getMondayColumns(dealsBoardId),
@@ -922,6 +914,29 @@ Only include columns where you have a real value. Skip columns you can't confide
       const dealColByTitle = Object.fromEntries((dealColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
       const contactColByTitle = Object.fromEntries((contactColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
       const accountColByTitle = Object.fromEntries((accountColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
+
+      // 4b-1) Sanitize AI vals: verwijder eventuele stage-status, die zetten we zelf expliciet met een geldige label.
+      const sanitizedVals = { ...(vals || {}) };
+      const stageColId = dealColByTitle["stage"];
+      const desiredStageLabel = followUp?.stage || stageMap[normalizedOutcome] || "New / Meeting Planned";
+      if (stageColId && Object.prototype.hasOwnProperty.call(sanitizedVals, stageColId)) {
+        delete sanitizedVals[stageColId];
+      }
+
+      if (sanitizedVals && Object.keys(sanitizedVals).length > 0) {
+        await mondayGraphQL(
+          `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
+          { bid: dealsBoardId, iid: dealId, cv: JSON.stringify(sanitizedVals) }
+        );
+      }
+
+      // Zet Stage altijd met een geldige label die in Monday bestaat.
+      if (stageColId && desiredStageLabel) {
+        await mondayGraphQL(
+          `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
+          { bid: dealsBoardId, iid: dealId, col: stageColId, val: JSON.stringify({ label: desiredStageLabel }) }
+        );
+      }
 
       let createdContactId = null;
       let createdAccountId = null;
