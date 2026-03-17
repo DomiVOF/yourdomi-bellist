@@ -976,9 +976,9 @@ Only include columns where you have a real value. Skip columns you can't confide
         createdAccountId = await upsertItem(accountBoardId, accountNameFinal, accountVals, null);
       }
 
-      // Link to deal row via connect boards columns on the deal board ("Accounts", "Contacts")
-      const accountsColId = dealColByTitle["accounts"];
-      const contactsColId = dealColByTitle["contacts"];
+      // Link to deal row via connect boards columns on the deal board ("Accounts", "Contacts" – allow enkelvoud/Engels)
+      const accountsColId = dealColByTitle["accounts"] || dealColByTitle["account"];
+      const contactsColId = dealColByTitle["contacts"] || dealColByTitle["contact"];
       if (accountsColId && createdAccountId) {
         await mondayGraphQL(
           `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
@@ -995,21 +995,8 @@ Only include columns where you have a real value. Skip columns you can't confide
       console.warn("Contact/account sync + linking mislukt:", e?.message || e);
     }
 
-    // 6) Move deal to "Ongoing Projects" group after successful interest push
-    try {
-      if (normalizedOutcome === "gebeld_interesse") {
-        const ongoingGroupId = await getOrCreateGroup(dealsBoardId, "Ongoing Projects");
-        if (ongoingGroupId) {
-          await mondayGraphQL(
-            `mutation($iid:ID!, $gid:String!) { move_item_to_group(item_id:$iid, group_id:$gid) { id } }`,
-            { iid: dealId, gid: ongoingGroupId }
-          );
-        }
-      }
-    } catch (e) {
-      console.warn("Deal move naar Ongoing Projects mislukt:", e?.message || e);
-    }
-
+    // 6) Niet langer automatisch verplaatsen naar "Ongoing Projects":
+    // nieuwe deals blijven bewust in "New - to be confirmed".
     const plat = [
       ai?.airbnb?.gevonden  && `Airbnb: ${ai.airbnb.url || "gevonden"}`,
       ai?.booking?.gevonden && `Booking: ${ai.booking.url || "gevonden"}`,
