@@ -787,6 +787,11 @@ async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInU
 
   const normalizedOutcome = outcome === "interesse" ? "gebeld_interesse" : outcome; // UI uses both; normalize for Monday rules
 
+  const dealNaamFull = `${property.name}${property.municipality ? ` - ${property.municipality}` : ""}`;
+  const dealNaamShort = `${property.name || ""}`.trim();
+  const contactNameFinal = (contactNaam || "").trim();
+  const accountNameFinal = (property.name || "").trim();
+
   // 1. Fetch columns + Monday users in parallel
   const UNSUPPORTED = ["mirror","lookup","formula","button","dependency","auto_number","creation_log","last_updated","item_id","board_relation","subtasks"];
   const [allCols, usersData] = await Promise.all([
@@ -889,17 +894,43 @@ Only include columns where you have a real value. Skip columns you can't confide
     console.warn("AI column mapping parse failed:", e.message, aiText);
   }
 
-  const dealNaam = `${property.name}${property.municipality ? ` - ${property.municipality}` : ""}`;
+  // Helper: update existing item only (never create new rows)
+  const updateExistingItemByName = async (boardId, itemName, columnValues) => {
+    const existing = await findItemByName(boardId, itemName);
+    if (!existing?.id) return null;
+    if (columnValues && Object.keys(columnValues).length > 0) {
+      await mondayGraphQL(
+        `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
+        { bid: boardId, iid: existing.id, cv: JSON.stringify(columnValues) }
+      );
+    }
+    return existing.id;
+  };
 
   // IMPORTANT: Do not create new deal rows on the Ongoing Deals board.
   // Rows already exist; we only update an existing item.
-  const existingDeal = await findItemByName(dealsBoardId, dealNaam);
+  const dealCandidates = [dealNaamFull, dealNaamShort].filter(Boolean);
+  let existingDeal = null;
+  for (const cand of dealCandidates) {
+    existingDeal = await findItemByName(dealsBoardId, cand);
+    if (existingDeal?.id) break;
+  }
   const dealId = existingDeal?.id;
 
-  if (dealId) {
+  if (!dealId) {
+    throw new Error(`Geen bestaande deal gevonden in Monday (board ${dealsBoardId}) voor "${dealNaamFull}". Controleer of de rijnaam overeenkomt.`);
+  }
+
+  // 6) Update the existing deal row with AI-mapped column values
+  if (vals && Object.keys(vals).length > 0) {
+    await mondayGraphQL(
+      `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
+      { bid: dealsBoardId, iid: dealId, cv: JSON.stringify(vals) }
+    );
+  }
+
+  {
     // 5) Upsert Contact + Account on their boards, then link them to the deal row.
-    let createdContactId = null;
-    let createdAccountId = null;
     try {
       const [dealColsAll, contactColsAll, accountColsAll] = await Promise.all([
         getMondayColumns(dealsBoardId),
@@ -910,8 +941,10 @@ Only include columns where you have a real value. Skip columns you can't confide
       const contactColByTitle = Object.fromEntries((contactColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
       const accountColByTitle = Object.fromEntries((accountColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
 
-      // Contact: create/update item by name (must exist first, then fill fields)
-      const contactNameFinal = (contactNaam || "").trim();
+      let createdContactId = null;
+      let createdAccountId = null;
+
+      // Contact: update existing item by name
       if (contactNameFinal) {
         const statusLabel =
           normalizedOutcome === "gebeld_interesse" ? "Interesse"
@@ -925,16 +958,17 @@ Only include columns where you have a real value. Skip columns you can't confide
         if (contactColByTitle["e-mail"] && property.email) contactVals[contactColByTitle["e-mail"]] = property.email;
         if (contactColByTitle["pand"]) contactVals[contactColByTitle["pand"]] = property.name || "";
 
-        createdContactId = await upsertItem(contactBoardId, contactNameFinal, contactVals, null);
+        createdContactId = await updateExistingItemByName(contactBoardId, contactNameFinal, contactVals);
+        if (!createdContactId) {
+          throw new Error(`Geen bestaande contact gevonden in Monday (board ${contactBoardId}) voor "${contactNameFinal}".`);
+        }
       }
 
-      // Account: create/update item by property name; fill link/address if columns exist
-      const accountNameFinal = (property.name || "").trim();
+      // Account: update existing item by name
       if (accountNameFinal) {
         const fullAddress = [property.street, property.postalCode, property.municipality].filter(Boolean).join(", ");
         const websiteUrl = (property.website || ai?.directWebsite?.url || "").trim();
         const accountVals = {};
-        // Common column titles in your board: "Headquarters location" (location) and "Link" (link)
         if (accountColByTitle["headquarters location"] && fullAddress) {
           accountVals[accountColByTitle["headquarters location"]] = { address: fullAddress, city: property.municipality || "", country: "Belgium" };
         }
@@ -945,7 +979,10 @@ Only include columns where you have a real value. Skip columns you can't confide
           accountVals[accountColByTitle["phone"]] = { phone: property.phone, countryShortName: "BE" };
         }
 
-        createdAccountId = await upsertItem(accountBoardId, accountNameFinal, accountVals, null);
+        createdAccountId = await updateExistingItemByName(accountBoardId, accountNameFinal, accountVals);
+        if (!createdAccountId) {
+          throw new Error(`Geen bestaande account gevonden in Monday (board ${accountBoardId}) voor "${accountNameFinal}".`);
+        }
       }
 
       // Link to deal row via connect boards columns on the deal board ("Accounts", "Contacts")
