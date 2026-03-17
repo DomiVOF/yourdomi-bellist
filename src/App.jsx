@@ -906,13 +906,11 @@ Only include columns where you have a real value. Skip columns you can't confide
   {
     // 4b) Update deal row columns (met veilige stage-waarde) + upsert Contact/Account, dan linken.
     try {
-      const [dealColsAll, contactColsAll, accountColsAll] = await Promise.all([
+      const [dealColsAll, accountColsAll] = await Promise.all([
         getMondayColumns(dealsBoardId),
-        getMondayColumns(contactBoardId),
         getMondayColumns(accountBoardId),
       ]);
       const dealColByTitle = Object.fromEntries((dealColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
-      const contactColByTitle = Object.fromEntries((contactColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
       const accountColByTitle = Object.fromEntries((accountColsAll || []).map(c => [String(c.title || "").toLowerCase(), c.id]));
 
       // 4b-1) Sanitize AI vals: verwijder eventuele stage-status, die zetten we zelf expliciet met een geldige label.
@@ -938,27 +936,8 @@ Only include columns where you have a real value. Skip columns you can't confide
         );
       }
 
-      let createdContactId = null;
       let createdAccountId = null;
-
-      // Contact: create/update item by name (create first, then fill fields)
-      if (contactNameFinal) {
-        const statusLabel =
-          normalizedOutcome === "gebeld_interesse" ? "Interesse"
-            : (normalizedOutcome === "callback" || normalizedOutcome === "terugbellen") ? "Terugbellen"
-              : normalizedOutcome === "afgewezen" ? "Afgewezen"
-                : "Lead";
-
-        const contactVals = {};
-        if (contactColByTitle["status"]) contactVals[contactColByTitle["status"]] = { label: statusLabel };
-        if (contactColByTitle["telefoon"] && property.phone) contactVals[contactColByTitle["telefoon"]] = { phone: property.phone, countryShortName: "BE" };
-        if (contactColByTitle["e-mail"] && property.email) contactVals[contactColByTitle["e-mail"]] = property.email;
-        if (contactColByTitle["pand"]) contactVals[contactColByTitle["pand"]] = property.name || "";
-
-        createdContactId = await upsertItem(contactBoardId, contactNameFinal, contactVals, null);
-      }
-
-      // Account: create/update item by name (create first, then fill fields)
+      // Account: create/update item by name (create first, then fill fields) on 5092514218
       if (accountNameFinal) {
         const fullAddress = [property.street, property.postalCode, property.municipality].filter(Boolean).join(", ");
         const websiteUrl = (property.website || ai?.directWebsite?.url || "").trim();
@@ -985,11 +964,21 @@ Only include columns where you have a real value. Skip columns you can't confide
           { bid: dealsBoardId, iid: dealId, col: accountsColId, val: JSON.stringify({ item_ids: [parseInt(createdAccountId, 10)] }) }
         );
       }
-      if (contactsColId && createdContactId) {
-        await mondayGraphQL(
-          `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
-          { bid: dealsBoardId, iid: dealId, col: contactsColId, val: JSON.stringify({ item_ids: [parseInt(createdContactId, 10)] }) }
-        );
+      // 4b-4) Contact linking: probeer, na korte delay, een bestaand contact op te zoeken met dezelfde naam
+      // op het Contacts-board en link die aan de deal (we maken geen contact-rij meer rechtstreeks aan).
+      if (contactsColId && contactNameFinal) {
+        await new Promise((r) => setTimeout(r, 5000));
+        try {
+          const existingContact = await findItemByName(contactBoardId, contactNameFinal);
+          if (existingContact?.id) {
+            await mondayGraphQL(
+              `mutation($bid:ID!, $iid:ID!, $col:String!, $val:JSON!) { change_column_value(board_id:$bid, item_id:$iid, column_id:$col, value:$val) { id } }`,
+              { bid: dealsBoardId, iid: dealId, col: contactsColId, val: JSON.stringify({ item_ids: [parseInt(existingContact.id, 10)] }) }
+            );
+          }
+        } catch (linkErr) {
+          console.warn("Contact linking via Contacts-board mislukt:", linkErr?.message || linkErr);
+        }
       }
     } catch (e) {
       console.warn("Contact/account sync + linking mislukt:", e?.message || e);
