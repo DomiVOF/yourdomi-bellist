@@ -9,10 +9,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  // Support both naming conventions
-  const apiKey = process.env.ANTHROPIC_API_KEY
-    || process.env.VITE_ANTHROPIC_API_KEY
-    || process.env.REACT_APP_ANTHROPIC_API_KEY;
+  // Server-only secret (do not use VITE_/REACT_APP_ envs here)
+  const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
     return res.status(500).json({ error: { message: 'API key not configured. Set ANTHROPIC_API_KEY in Vercel environment variables.' } });

@@ -894,34 +894,16 @@ Only include columns where you have a real value. Skip columns you can't confide
     console.warn("AI column mapping parse failed:", e.message, aiText);
   }
 
-  // Helper: update existing item only (never create new rows)
-  const updateExistingItemByName = async (boardId, itemName, columnValues) => {
-    const existing = await findItemByName(boardId, itemName);
-    if (!existing?.id) return null;
-    if (columnValues && Object.keys(columnValues).length > 0) {
-      await mondayGraphQL(
-        `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
-        { bid: boardId, iid: existing.id, cv: JSON.stringify(columnValues) }
-      );
-    }
-    return existing.id;
-  };
+  // 1) ALTIJD een nieuwe deal-rij aanmaken in de New-group
+  const groupId = await getOrCreateGroup(dealsBoardId, "New - to be confirmed");
+  const createRes = await mondayGraphQL(
+    `mutation($bid:ID!, $gid:String!, $name:String!) { create_item(board_id:$bid, group_id:$gid, item_name:$name) { id } }`,
+    { bid: dealsBoardId, gid: groupId, name: dealNaamFull }
+  );
+  const dealId = createRes.create_item?.id || null;
+  if (!dealId) throw new Error("Deal rij kon niet worden aangemaakt in Monday.");
 
-  // IMPORTANT: Do not create new deal rows on the Ongoing Deals board.
-  // Rows already exist; we only update an existing item.
-  const dealCandidates = [dealNaamFull, dealNaamShort].filter(Boolean);
-  let existingDeal = null;
-  for (const cand of dealCandidates) {
-    existingDeal = await findItemByName(dealsBoardId, cand);
-    if (existingDeal?.id) break;
-  }
-  const dealId = existingDeal?.id;
-
-  if (!dealId) {
-    throw new Error(`Geen bestaande deal gevonden in Monday (board ${dealsBoardId}) voor "${dealNaamFull}". Controleer of de rijnaam overeenkomt.`);
-  }
-
-  // 6) Update the existing deal row with AI-mapped column values
+  // Update the deal row with AI-mapped column values
   if (vals && Object.keys(vals).length > 0) {
     await mondayGraphQL(
       `mutation($bid:ID!, $iid:ID!, $cv:JSON!) { change_multiple_column_values(board_id:$bid, item_id:$iid, column_values:$cv) { id } }`,
@@ -944,7 +926,7 @@ Only include columns where you have a real value. Skip columns you can't confide
       let createdContactId = null;
       let createdAccountId = null;
 
-      // Contact: update existing item by name
+      // Contact: create/update item by name (create first, then fill fields)
       if (contactNameFinal) {
         const statusLabel =
           normalizedOutcome === "gebeld_interesse" ? "Interesse"
@@ -958,13 +940,10 @@ Only include columns where you have a real value. Skip columns you can't confide
         if (contactColByTitle["e-mail"] && property.email) contactVals[contactColByTitle["e-mail"]] = property.email;
         if (contactColByTitle["pand"]) contactVals[contactColByTitle["pand"]] = property.name || "";
 
-        createdContactId = await updateExistingItemByName(contactBoardId, contactNameFinal, contactVals);
-        if (!createdContactId) {
-          throw new Error(`Geen bestaande contact gevonden in Monday (board ${contactBoardId}) voor "${contactNameFinal}".`);
-        }
+        createdContactId = await upsertItem(contactBoardId, contactNameFinal, contactVals, null);
       }
 
-      // Account: update existing item by name
+      // Account: create/update item by name (create first, then fill fields)
       if (accountNameFinal) {
         const fullAddress = [property.street, property.postalCode, property.municipality].filter(Boolean).join(", ");
         const websiteUrl = (property.website || ai?.directWebsite?.url || "").trim();
@@ -979,10 +958,7 @@ Only include columns where you have a real value. Skip columns you can't confide
           accountVals[accountColByTitle["phone"]] = { phone: property.phone, countryShortName: "BE" };
         }
 
-        createdAccountId = await updateExistingItemByName(accountBoardId, accountNameFinal, accountVals);
-        if (!createdAccountId) {
-          throw new Error(`Geen bestaande account gevonden in Monday (board ${accountBoardId}) voor "${accountNameFinal}".`);
-        }
+        createdAccountId = await upsertItem(accountBoardId, accountNameFinal, accountVals, null);
       }
 
       // Link to deal row via connect boards columns on the deal board ("Accounts", "Contacts")
