@@ -1880,13 +1880,28 @@ export default function App() {
         onAfgewezen={() => verbergPand(selected.id, "afgewezen")}
         onTerug={() => {
           setView("lijst");
-          if (listSnapshot) {
-            if (listSnapshot.displayMode) setDisplayMode(listSnapshot.displayMode);
-            if (listSnapshot.sorteer) setSorteer(listSnapshot.sorteer);
-            if (typeof listSnapshot.page === "number") setPage(listSnapshot.page);
-            if (listSnapshot.rawFilters) setRawFilters(listSnapshot.rawFilters);
-            if (listSnapshot.filters) applyFilters(listSnapshot.filters);
+          if (!listSnapshot) return;
+
+          if (listSnapshot.displayMode) setDisplayMode(listSnapshot.displayMode);
+          if (listSnapshot.sorteer) setSorteer(listSnapshot.sorteer);
+          if (listSnapshot.rawFilters) setRawFilters(listSnapshot.rawFilters);
+
+          const nextFilters = listSnapshot.filters || listSnapshot.rawFilters;
+          const nextPage = typeof listSnapshot.page === "number" ? listSnapshot.page : 1;
+          if (nextFilters) {
+            // Unlike applyFilters(), this preserves the previous page + doesn't blank the list.
+            fetchTokenRef.current += 1;
+            const myToken = fetchTokenRef.current;
+            nextPageCacheRef.current = null;
+            fillingRef.current = false;
+            setPage(nextPage);
+            setFilters(nextFilters);
+            laadPanden(nextPage, nextFilters, myToken);
+          } else {
+            setPage(nextPage);
           }
+
+          setAiGestart(false);
         }}
         currentIdx={zichtbaar.findIndex(p => p.id === selected.id) + 1}
         total={zichtbaar.length}
