@@ -1361,6 +1361,7 @@ export default function App() {
   const [notes, setNotes] = useState(() => load("notes", {}));
   const [hidden, setHidden] = useState(() => load("hidden", [])); // manual hide
   const [selected, setSelected] = useState(null);
+  const [listSnapshot, setListSnapshot] = useState(null); // preserve applied filters when navigating to dossier
   const [loading, setLoading] = useState(false);
   const [enrichingIds, setEnrichingIds] = useState(new Set());
   const [addressEnrichingIds, setAddressEnrichingIds] = useState(new Set());
@@ -1877,7 +1878,16 @@ export default function App() {
         onOutcome={v => slaUitkomstOp(selected.id, v)}
         onVerberg={() => verbergPand(selected.id, "verborgen")}
         onAfgewezen={() => verbergPand(selected.id, "afgewezen")}
-        onTerug={() => setView("lijst")}
+        onTerug={() => {
+          setView("lijst");
+          if (listSnapshot) {
+            if (listSnapshot.displayMode) setDisplayMode(listSnapshot.displayMode);
+            if (listSnapshot.sorteer) setSorteer(listSnapshot.sorteer);
+            if (typeof listSnapshot.page === "number") setPage(listSnapshot.page);
+            if (listSnapshot.rawFilters) setRawFilters(listSnapshot.rawFilters);
+            if (listSnapshot.filters) applyFilters(listSnapshot.filters);
+          }
+        }}
         currentIdx={zichtbaar.findIndex(p => p.id === selected.id) + 1}
         total={zichtbaar.length}
         onVolgende={() => {
@@ -2139,7 +2149,7 @@ export default function App() {
 
       {error && (
         <div className="bg-red-50 text-yd-red py-2 px-4 text-sm border-b border-red-200">
-          ! {error} — <span className="cursor-pointer underline" onClick={() => laadPanden(1)}>opnieuw proberen</span>
+          ! {error} — <span className="cursor-pointer underline" onClick={() => laadPanden(1, filters)}>opnieuw proberen</span>
         </div>
       )}
 
@@ -2191,6 +2201,7 @@ export default function App() {
                     key={p.id || i}
                     className={`border-b border-yd-border cursor-pointer hover:bg-[#F8FAFC] transition-colors ${enriched[p.id]?.score === "HEET" ? "bg-amber-50/80" : "bg-white even:bg-yd-bg/50"}`}
                     onClick={() => {
+                      setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
                       setSelected(p);
                       setView("dossier");
                       if (!enriched[p.id] && !enrichingIds.has(p.id)) {
@@ -2209,7 +2220,7 @@ export default function App() {
                       <button
                         type="button"
                         className="text-left w-full text-[#1A1A1A] font-semibold hover:underline focus:outline-none focus:underline"
-                        onClick={e => { e.stopPropagation(); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
+                        onClick={e => { e.stopPropagation(); setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode }); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
                       >
                         {p.name || "—"}
                       </button>
@@ -2271,6 +2282,7 @@ export default function App() {
               portfolioAantal={portfolioAantal}
               uitkomstLabel={uitkomstLabel}
               onCardClick={() => {
+                setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
                 setSelected(prop);
                 setView("dossier");
                 if (!enriched[prop.id] && !enrichingIds.has(prop.id)) {

@@ -1,0 +1,242 @@
+# YourDomi — Cursor AI Rules
+# Source: everything-claude-code (affaan-m) + YourDomi project context
+# Stack: React, Vite, TypeScript, Tailwind CSS, Node.js, deployed on Vercel
+
+## Project Context
+This is YourDomi (yourdomi.be), a Belgian short-term rental property management platform.
+The app includes: property analysis tools, deal scoring, owner earnings projections,
+permit/compliance guides (Praktische Gids), lead capture flows, and the Bellijst cold-caller dashboard.
+
+---
+
+# CODING STYLE
+
+## Immutability (CRITICAL)
+ALWAYS create new objects, NEVER mutate existing ones:
+- Use spread operators: return { ...user, name } — never user.name = name
+- Use map/filter/reduce — never push/splice/direct array mutation
+- React state must always be set via setState with new references
+
+## File Organization
+MANY SMALL FILES > FEW LARGE FILES:
+- 200-400 lines typical, 800 max absolute
+- Extract utilities from large modules
+- Organize by feature/domain, not by type
+- Components: max ~150 lines; extract sub-components if exceeding this
+
+## Error Handling
+ALWAYS handle errors comprehensively:
+- Handle errors explicitly at every level
+- Provide user-friendly error messages in UI-facing code
+- Log detailed error context on the server side
+- Never silently swallow errors
+- Use async/await with try-catch for all async operations
+
+## Input Validation
+ALWAYS validate at system boundaries:
+- Validate all user input before processing
+- Use Zod for schema-based validation where available
+- Fail fast with clear error messages
+- Never trust external data (API responses, user input, file content)
+
+## TypeScript
+- Always define explicit types for props, API responses, and state shapes
+- Never use `any` — use `unknown` and narrow with type guards
+- Define shared types in a central `types/` directory
+- Use discriminated unions for complex state (loading/error/success)
+- No `// @ts-ignore` — fix the type issue properly
+
+## Code Quality Checklist
+Before marking work complete:
+- [ ] Code is readable and well-named
+- [ ] Functions are small (<50 lines)
+- [ ] Files are focused (<800 lines)
+- [ ] No deep nesting (>4 levels)
+- [ ] Proper error handling
+- [ ] No hardcoded values (use constants or config)
+- [ ] No mutation (immutable patterns used)
+- [ ] No console.log in production code
+
+---
+
+# SECURITY
+
+## Mandatory Security Checks
+Before ANY commit:
+- [ ] No hardcoded secrets (API keys, passwords, tokens)
+- [ ] All user inputs validated
+- [ ] SQL injection prevention (parameterized queries)
+- [ ] XSS prevention (sanitized HTML)
+- [ ] Authentication/authorization verified
+- [ ] Error messages don't leak sensitive data
+
+## Secret Management
+- NEVER hardcode secrets in source code
+- ALWAYS use environment variables: process.env.* or import.meta.env.VITE_*
+- Validate that required secrets are present at startup
+- Rotate any secrets that may have been exposed
+
+```typescript
+// NEVER
+const apiKey = "sk-proj-xxxxx"
+
+// ALWAYS
+const apiKey = process.env.API_KEY
+if (!apiKey) throw new Error('API_KEY not configured')
+```
+
+---
+
+# TESTING
+
+## Minimum Test Coverage: 80%
+Test Types (ALL required):
+1. Unit Tests — Individual functions, utilities, components
+2. Integration Tests — API endpoints, database operations
+3. E2E Tests — Critical user flows (use Playwright)
+
+## Test-Driven Development
+MANDATORY workflow:
+1. Write test first (RED)
+2. Run test — it should FAIL
+3. Write minimal implementation (GREEN)
+4. Run test — it should PASS
+5. Refactor (IMPROVE)
+6. Verify coverage (80%+)
+
+---
+
+# GIT WORKFLOW
+
+## Commit Message Format
+```
+<type>: <description>
+
+<optional body>
+```
+Types: feat, fix, refactor, docs, test, chore, perf, ci
+
+Examples:
+- feat: add deal score visualization to property report
+- fix: correct EUR formatting in owner earnings projection
+- refactor: extract PropertyCard into smaller sub-components
+
+## Pull Request Workflow
+1. Analyze full commit history (not just latest commit)
+2. Use `git diff [base-branch]...HEAD` to see all changes
+3. Draft comprehensive PR summary
+4. Include test plan
+
+---
+
+# PERFORMANCE
+
+## Context Window Management
+Avoid last 20% of context window for:
+- Large-scale refactoring
+- Feature implementation spanning multiple files
+
+Fine at higher context:
+- Single-file edits
+- Documentation updates
+- Simple bug fixes
+
+## React Performance
+- Memoize expensive computations with `useMemo`
+- Memoize stable callbacks with `useCallback` when passing to children
+- Lazy-load routes and heavy components with React.lazy + Suspense
+- Avoid unnecessary re-renders
+
+---
+
+# DEVELOPMENT WORKFLOW
+
+## Plan Before You Code
+1. For any feature touching more than 2 files — outline the approach first
+2. Identify side effects, shared state changes, and component dependencies
+3. Ask clarifying questions before making assumptions on business logic
+4. Break down into phases before starting
+
+## Feature Implementation Pipeline
+1. Plan — outline approach, identify dependencies
+2. TDD — write tests first, implement, refactor
+3. Review — check for security issues, code quality
+4. Commit — conventional commit format
+
+---
+
+# TYPESCRIPT/JAVASCRIPT PATTERNS
+
+## API Response Format
+```typescript
+interface ApiResponse<T> {
+  success: boolean
+  data?: T
+  error?: string
+  meta?: { total: number; page: number; limit: number }
+}
+```
+
+## Custom Hooks Pattern
+```typescript
+export function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(handler)
+  }, [value, delay])
+  return debouncedValue
+}
+```
+
+## Immutable Updates
+```typescript
+// WRONG
+function updateUser(user, name) {
+  user.name = name
+  return user
+}
+
+// CORRECT
+function updateUser(user, name) {
+  return { ...user, name }
+}
+```
+
+---
+
+# YOURDOMI-SPECIFIC PATTERNS
+
+## Currency & Numbers
+- All currency is EUR
+- Format: `new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(amount)`
+- Occupancy rates: stored as decimals (0.72), displayed as percentages (72%)
+- Never display raw API numbers — always run through formatter functions
+
+## Property Analysis
+- Deal scores are 0–100; display with color coding (red <40, amber 40-70, green >70)
+- Owner earnings projections must show monthly AND annual breakdowns
+- Permit/compliance content is city-specific — always check `city` prop before rendering
+
+## Lead Capture
+- Lead modal must always have a visible close mechanism
+- Form validation runs on submit, not on every keystroke
+- On successful submission, show confirmation before redirecting
+
+## Styling (Tailwind)
+- Use Tailwind utility classes; avoid inline styles except for truly dynamic values
+- Define brand colors in tailwind.config — don't hardcode hex values
+- Use cn() utility (clsx/tailwind-merge) for conditional class names
+- Mobile-first with md: and lg: breakpoints
+
+---
+
+# WHAT NOT TO DO
+- Don't use console.log in committed code
+- Don't add dependencies without checking bundle size impact
+- Don't create files over 800 lines — split them
+- Don't use `any` TypeScript type
+- Don't use `// @ts-ignore`
+- Don't leave TODO comments without a linked issue
+- Don't fetch data directly in components — use hooks or query functions
+- Don't mutate state directly — always use setState with new object references
