@@ -731,12 +731,11 @@ Call outcome: "${outcome}"
 Today: ${todayStr}
 
 EXACT valid values for nextStep (must match exactly):
-- "Appointment" — meeting/afspraak planned
-- "Call Back" — terugbellen afgesproken  
-- "Follow-up" — algemene follow-up nodig
-- "Make analysis" — analyse maken
-- "Make proposal" — voorstel maken
+- "Google meet" — meeting/afspraak gepland
+- "Appointment" — afspraak inplannen
 - "Send contract" — contract sturen
+- "Call Back" — terugbellen afgesproken
+- "Waiting of feedback" — wachten op feedback
 
 EXACT valid values for stage (must match exactly):
 - "New / Meeting Planned" — interesse, afspraak plannen
@@ -765,7 +764,7 @@ Rules:
 - Only set stage if the note clearly implies a stage change
 - Convert relative dates like "vrijdag", "volgende week", "over 2 dagen" to YYYY-MM-DD
 - assignedTo: extract name if someone specific is mentioned (e.g. "Aaron moet bellen" -> "Aaron")
-- If the notes mention sending an email, info mail, or phrases like "mail gestuurd/verzonden", set stage to "Infomail send" and nextStep to "Follow-up"
+- If the notes mention sending an email, info mail, or phrases like "mail gestuurd/verzonden", set stage to "Infomail send" and nextStep to "Waiting of feedback"
 - If nothing concrete, return null for all fields`
         }]
       })
@@ -780,10 +779,12 @@ Rules:
   }
 }
 
-async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInUser) {
+async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInUser, emailOverride = "") {
+  const effectiveEmail = (emailOverride || property.email || "").trim();
+  const propertyForSync = { ...property, email: effectiveEmail || property.email || "" };
   const dealsBoardId = "5092514219"; // Railway: MONDAY_BOARD_ID
   const contactBoardId = "5092514217";
-  const accountBoardId = "44692286";
+  const accountBoardId = "5092514218";
 
   const normalizedOutcome = outcome === "interesse" ? "gebeld_interesse" : outcome; // UI uses both; normalize for Monday rules
 
@@ -814,7 +815,7 @@ async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInU
 
   // 2. Outcome defaults
   const stageMap    = { gebeld_interesse:"New / Meeting Planned", callback:"New / Meeting Planned", terugbellen:"New / Meeting Planned", afgewezen:"Contact Later" };
-  const nextStepMap = { gebeld_interesse:"Appointment", callback:"Call Back", terugbellen:"Call Back", afgewezen:"Follow-up" };
+  const nextStepMap = { gebeld_interesse:"Appointment", callback:"Call Back", terugbellen:"Call Back", afgewezen:"Waiting of feedback" };
   const probMap     = { gebeld_interesse:60, callback:20, terugbellen:20, afgewezen:0 };
 
   // 3. Run AI to analyse notes + decide which columns to set and with what values
@@ -824,7 +825,7 @@ async function syncMondayCRM(property, ai, outcome, note, contactNaam, loggedInU
     ? {
         ...(followUpBase || {}),
         stage: "Infomail send",
-        nextStep: "Follow-up",
+        nextStep: "Waiting of feedback",
       }
     : followUpBase;
 
@@ -848,12 +849,12 @@ ${userListForAI}
 LOGGED IN USER (person making the call): ${loggedInUser || "unknown"} (monday_id: ${currentUser?.id || "unknown"})
 
 PROPERTY DATA:
-- Name: ${property.name}
-- Phone: ${property.phone || ""}
-- Email: ${property.email || ""}
-- Website: ${property.website || ai?.directWebsite?.url || ""}
-- Address: ${[property.street, property.postalCode, property.municipality].filter(Boolean).join(", ")}
-- Rooms/sleepplaces: ${property.sleepPlaces || property.slaapplaatsen || ""}
+- Name: ${propertyForSync.name}
+- Phone: ${propertyForSync.phone || ""}
+- Email: ${propertyForSync.email || ""}
+- Website: ${propertyForSync.website || ai?.directWebsite?.url || ""}
+- Address: ${[propertyForSync.street, propertyForSync.postalCode, propertyForSync.municipality].filter(Boolean).join(", ")}
+- Rooms/sleepplaces: ${propertyForSync.sleepPlaces || propertyForSync.slaapplaatsen || ""}
 - Call outcome: ${outcome}
 - Stage to set: ${followUp?.stage || stageMap[normalizedOutcome] || "New / Meeting Planned"}
 - Next step to set: ${followUp?.nextStep || nextStepMap[normalizedOutcome] || "Follow-up"}
@@ -950,6 +951,9 @@ Only include columns where you have a real value. Skip columns you can't confide
         }
         if (accountColByTitle["phone"] && property.phone) {
           accountVals[accountColByTitle["phone"]] = { phone: property.phone, countryShortName: "BE" };
+        }
+        if (accountColByTitle["e-mail"] && propertyForSync.email) {
+          accountVals[accountColByTitle["e-mail"]] = propertyForSync.email;
         }
 
         createdAccountId = await upsertItem(accountBoardId, accountNameFinal, accountVals, null);
@@ -1461,6 +1465,7 @@ export default function App() {
   const [outcomes, setOutcomes] = useState(() => load("outcomes", {}));
   const [notes, setNotes] = useState(() => load("notes", {}));
   const [contactNamen, setContactNamen] = useState(() => load("contactnamen", {})); // id -> contact name
+  const [contactEmails, setContactEmails] = useState(() => load("contactemails", {})); // id -> editable contact email
   const [hidden, setHidden] = useState(() => load("hidden", [])); // manual hide
   const [selected, setSelected] = useState(null);
   const [listSnapshot, setListSnapshot] = useState(null); // preserve applied filters when navigating to dossier
@@ -2034,9 +2039,10 @@ export default function App() {
           const outcome = outcomes[prop.id];
           const note = notes[prop.id] || "";
           const contactNaam = contactNamen[prop.id] || prop.name;
+          const contactEmail = (contactEmails[prop.id] || prop.email || "").trim();
           setMondaySyncing(s => new Set([...s, prop.id]));
           setMondayStatus(s => ({ ...s, [prop.id]: "bezig" }));
-          syncMondayCRM(prop, ai, outcome, note, contactNaam, user?.username)
+          syncMondayCRM(prop, ai, outcome, note, contactNaam, user?.username, contactEmail)
             .then(() => setMondayStatus(s => ({ ...s, [prop.id]: "ok" })))
             .catch(e => { console.error("Monday push fout:", e); setMondayStatus(s => ({ ...s, [prop.id]: "fout" })); setMondayFout(s => ({ ...s, [prop.id]: e.message || String(e) })); })
             .finally(() => setMondaySyncing(s => { const n = new Set(s); n.delete(prop.id); return n; }));
@@ -2046,7 +2052,13 @@ export default function App() {
           setContactNamen(updated);
           save("contactnamen", updated);
         }}
+        onSaveContactEmail={(email) => {
+          const updated = { ...contactEmails, [selected.id]: email };
+          setContactEmails(updated);
+          save("contactemails", updated);
+        }}
         contactNaam={contactNamen[selected.id] || ""}
+        contactEmail={contactEmails[selected.id] || selected.email || ""}
       />
     );
   }
@@ -2529,7 +2541,7 @@ export default function App() {
 }
 
 // --- DOSSIER VIEW -------------------------------------------------------------
-function DossierView({ property, ai, platformScanData, enriching, outcome, note, phoneGroups, properties, onNote, onOutcome, onVerberg, onAfgewezen, onTerug, currentIdx, total, onVolgende, onVorige, onSelectPand, mondayActief, mondayStatus, mondaySyncing, mondayCfg, onOpenConfig, onPushMonday, mondayFoutMsg, onSaveContactNaam, contactNaam }) {
+function DossierView({ property, ai, platformScanData, enriching, outcome, note, phoneGroups, properties, onNote, onOutcome, onVerberg, onAfgewezen, onTerug, currentIdx, total, onVolgende, onVorige, onSelectPand, mondayActief, mondayStatus, mondaySyncing, mondayCfg, onOpenConfig, onPushMonday, mondayFoutMsg, onSaveContactNaam, contactNaam, onSaveContactEmail, contactEmail }) {
   const [activeImg, setActiveImg] = useState(0);
   const [imgErrors, setImgErrors] = useState({});
   const noteRef = useRef(null);
@@ -2639,6 +2651,18 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
               onChange={e => onSaveContactNaam && onSaveContactNaam(e.target.value)}
             />
           </div>
+          <div className="mb-3 py-2.5 px-3 bg-white rounded-xl border border-[#EBEBEB]">
+            <label className="block text-xs text-[#888888] mb-1.5">
+              E-mail contactpersoon
+              <span className=" text-[#888888]"> - bewerkbaar</span>
+            </label>
+            <input
+              className="w-full bg-white border border-[#EBEBEB] rounded-xl py-2 px-3 text-sm text-[#1A1A1A] outline-none focus:ring-2 focus:ring-yd-red/30"
+              placeholder="naam@domein.be"
+              value={contactEmail}
+              onChange={e => onSaveContactEmail && onSaveContactEmail(e.target.value)}
+            />
+          </div>
           <div className="flex flex-col gap-2">
             {property.phone && (
               <div className="flex items-center gap-2.5 py-2.5 px-3 bg-white rounded-xl border border-[#EBEBEB]">
@@ -2650,7 +2674,7 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
             )}
             {property.phone2 && <ContactRegel icoon="📞" label="Telefoon 2" val={property.phone2} href={`tel:${property.phone2}`} />}
             {!property.phone && !property.phone2 && !property.email && <div className="text-xs text-[#888888] italic py-1">⏳ Contactgegevens worden opgehaald...</div>}
-            {property.email && <ContactRegel icoon="@" label="E-mail" val={property.email} href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(property.email)}`} />}
+            {contactEmail && <ContactRegel icoon="@" label="E-mail" val={contactEmail} href={`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(contactEmail)}`} />}
             {property.website && <ContactRegel icoon="🌐" label="Website" val={property.website} href={property.website.startsWith("http") ? property.website : "https://" + property.website} />}
             {property.street && <ContactRegel icoon="📍" label="Straat" val={`${property.street}${property.postalCode ? ", " + property.postalCode : ""}${property.municipality ? " " + property.municipality : ""}`} href={`https://maps.google.com/?q=${encodeURIComponent([property.street, property.postalCode, property.municipality].filter(Boolean).join(" "))}`} />}
             <ContactRegel icoon="🔖" label="TV Register" val={property.registrationNumber?.slice(-12) || property.id?.slice(-12)} href={property.rawUrl} />
