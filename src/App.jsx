@@ -1599,7 +1599,9 @@ export default function App() {
     }
   }, [filters, sorteer, selected]);
 
-  const applyFilters = (nextFilters) => {
+  const applyFilters = (nextFiltersInput) => {
+    // Snapshot to avoid stale/shared object edge-cases between raw/applied filters.
+    const nextFilters = { ...(nextFiltersInput || {}) };
     fetchTokenRef.current += 1;
     const myToken = fetchTokenRef.current;
     nextPageCacheRef.current = null;
@@ -1607,6 +1609,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
     setPage(1);
     setProperties([]);
+    setRawFilters(nextFilters);
     setFilters(nextFilters);
     laadPanden(1, nextFilters, myToken);
     setAiGestart(false);
@@ -2167,7 +2170,7 @@ export default function App() {
           <button
             type="button"
             className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150"
-            onClick={() => applyFilters(rawFilters)}
+            onClick={() => applyFilters({ ...rawFilters })}
           >
             Zoeken
           </button>
