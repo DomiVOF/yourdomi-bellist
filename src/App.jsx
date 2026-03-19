@@ -1612,6 +1612,12 @@ export default function App() {
     setRawFilters(nextFilters);
     setFilters(nextFilters);
     laadPanden(1, nextFilters, myToken);
+    // Safety re-sync: ensures one-click filtering even if a concurrent fetch/update raced.
+    setTimeout(() => {
+      if (fetchTokenRef.current === myToken) {
+        laadPanden(1, nextFilters, myToken);
+      }
+    }, 180);
     setAiGestart(false);
   };
 
