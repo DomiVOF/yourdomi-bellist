@@ -1,6 +1,7 @@
 // YourDomi Bellijst v2.2 — redesign: Tailwind + Nunito + lucide-react
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
+import PropertyMapView from "./components/PropertyMapView.jsx";
 
 // --- DESIGN TOKENS (light, gold-accent theme) --------------------------------
 const T = {
@@ -30,7 +31,14 @@ const T = {
 
 // --- TV API -------------------------------------------------------------------
 
-const API_URL = import.meta.env.VITE_API_URL || "https://yourdomi-server-production.up.railway.app";
+const DEFAULT_API_ORIGIN = "https://yourdomi-server-production.up.railway.app";
+const envApiUrl = import.meta.env.VITE_API_URL;
+// Empty string = explicit "no server" (demo/offline). Unset in dev -> same-origin /api via Vite proxy (no CORS).
+const API_DISABLED = envApiUrl === "";
+const API_URL = API_DISABLED
+  ? ""
+  : envApiUrl || (import.meta.env.DEV ? "" : DEFAULT_API_ORIGIN);
+const USE_SERVER = !API_DISABLED;
 function getToken() { try { return localStorage.getItem("yd_token") || ""; } catch { return ""; } }
 // GET requests: only send auth token, NOT Content-Type (causes CORS preflight issues on GET)
 function getHeaders() { return { "x-auth-token": getToken() }; }
@@ -65,6 +73,16 @@ async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "s
   return r.json();
 }
 
+function lodgingRowsFromApiPayload(data) {
+  if (data == null || typeof data !== "object") return [];
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.results)) return data.results;
+  if (Array.isArray(data.panden)) return data.panden;
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data)) return data;
+  return [];
+}
+
 async function fetchPagesWithFill(startPage = 1, pageSize = 50, filters = {}, sorteer = "score") {
   let currentPage = startPage;
   let allItems = [];
@@ -73,7 +91,7 @@ async function fetchPagesWithFill(startPage = 1, pageSize = 50, filters = {}, so
   // Safety cap: never fetch more than 10 pages in one chain
   for (let i = 0; i < 10; i++) {
     const data = await fetchLodgings(currentPage, pageSize, filters, sorteer);
-    const rawList = Array.isArray(data?.data) ? data.data : [];
+    const rawList = lodgingRowsFromApiPayload(data);
     const items = rawList.map(item => parseLodging(item));
     if (!meta) meta = data.meta || {};
     allItems = allItems.concat(items);
@@ -96,7 +114,7 @@ async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "
 
   while (page <= 10) {
     const data = await fetchLodgings(page, 50, {}, sorteer);
-    const rawList = Array.isArray(data?.data) ? data.data : [];
+    const rawList = lodgingRowsFromApiPayload(data);
     if (!rawList.length) break;
     const items = rawList.map(item => parseLodging(item));
     items.forEach(p => {
@@ -119,7 +137,7 @@ async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "
 
 // Save enrichment to server + localStorage
 async function saveEnrichment(id, data) {
-  if (API_URL) {
+  if (USE_SERVER) {
     try {
       await fetch(`${API_URL}/api/enrichment/${id}`, {
         method: "POST",
@@ -132,7 +150,7 @@ async function saveEnrichment(id, data) {
 
 // Load all enrichments from server
 async function loadAllEnrichments() {
-  if (!API_URL) return null;
+  if (!USE_SERVER) return null;
   try {
     const r = await fetch(`${API_URL}/api/enrichment`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
     if (r.ok) return await r.json();
@@ -142,7 +160,7 @@ async function loadAllEnrichments() {
 
 // Load platform scan (light AI: website + Airbnb + Booking only) — used to show pills and rank before full enrichment
 async function loadPlatformScan() {
-  if (!API_URL) return null;
+  if (!USE_SERVER) return null;
   try {
     const r = await fetch(`${API_URL}/api/platform-scan`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
     if (r.ok) return await r.json();
@@ -152,7 +170,7 @@ async function loadPlatformScan() {
 
 // Load all outcomes from server (status per pand)
 async function loadAllOutcomes() {
-  if (!API_URL) return null;
+  if (!USE_SERVER) return null;
   try {
     const r = await fetch(`${API_URL}/api/outcomes`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
     if (r.ok) return await r.json();
@@ -164,7 +182,7 @@ async function loadAllOutcomes() {
 
 // Save outcome to server
 async function saveOutcomeToServer(id, outcome, note, contactNaam) {
-  if (!API_URL) return;
+  if (!USE_SERVER) return;
   try {
     await fetch(`${API_URL}/api/outcomes/${id}`, {
       method: "POST",
@@ -1445,7 +1463,9 @@ export default function App() {
 
   const handleLogin = (data) => setUser({ username: data.username, name: data.name });
   const handleLogout = async () => {
-    await fetch(`${API_URL}/api/logout`, { method: "POST", headers: getHeaders() }).catch(() => {});
+    if (USE_SERVER) {
+      await fetch(`${API_URL}/api/logout`, { method: "POST", headers: getHeaders() }).catch(() => {});
+    }
     localStorage.removeItem("yd_token");
     localStorage.removeItem("yd_user");
     setUser(null);
@@ -1521,14 +1541,14 @@ export default function App() {
   const [rawFilters, setRawFilters] = useState(initialFilters); // live UI-waarden
   const [filterOpen, setFilterOpen] = useState(false);
   const [sorteer, setSorteer] = useState("score"); // score | naam | slaap | gemeente
-  const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table"
+  const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table" | "map"
   const [aiGestart, setAiGestart] = useState(false);
   const [meta, setMeta] = useState({ provinces: [], types: [], regios: [] });
   const [cardThumbErrors, setCardThumbErrors] = useState({}); // id -> true when thumb image failed to load
   const [dbEnrichmentCount, setDbEnrichmentCount] = useState(null); // total full enrichments in DB (server-wide)
 
   const loadHealth = useCallback(async () => {
-    if (!API_URL) return;
+    if (!USE_SERVER) return;
     try {
       const r = await fetch(`${API_URL}/api/health`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
       if (!r.ok) return;
@@ -1621,6 +1641,31 @@ export default function App() {
     setAiGestart(false);
   };
 
+  const resetFiltersToDefault = () => applyFilters({ ...initialFilters });
+
+  const loadDemoPanden = () => {
+    setError(null);
+    const demo = buildDemoData(1, 50);
+    const rows = lodgingRowsFromApiPayload(demo);
+    const items = rows.map(item => parseLodging(item));
+    setProperties(items);
+    const total = Math.max(0, parseInt(demo.meta?.total, 10) || demo.meta?.count || items.length || 0);
+    setTotalCount(total);
+    setDbTotalCount(null);
+    const groups = {};
+    items.forEach(it => {
+      const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
+      if (key) {
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(it.id);
+      }
+    });
+    setPhoneGroups(groups);
+    setSelected(prev => prev || items[0] || null);
+    lastPageLoadedRef.current = 1;
+    nextPageCacheRef.current = null;
+  };
+
   // Batch verrijking - laadt alle panden van de pagina 3 tegelijk op
   const startBatchEnrich = useCallback((items, groups, priorityIds = null) => {
     // Nieuwe batch-id: alle lopende workers van vorige batches stoppen na hun huidige pand
@@ -1682,7 +1727,7 @@ export default function App() {
 
   useEffect(() => {
     // Load meta (provinces, types, regios) from server
-    if (API_URL) {
+    if (USE_SERVER) {
       fetch(`${API_URL}/api/meta`, { headers: getHeaders() }).then(r => {
         if (!r.ok) return;
         return r.json();
@@ -1691,7 +1736,7 @@ export default function App() {
       }).catch(() => {});
     }
     // Load enrichments from server first (overrides localStorage)
-    if (API_URL) {
+    if (USE_SERVER) {
       loadAllEnrichments().then(serverData => {
         if (serverData && Object.keys(serverData).length > 0) {
           setEnriched(serverData);
@@ -1891,7 +1936,7 @@ export default function App() {
       let nextPage = lastPageLoadedRef.current + 1;
       while (visibleCount < 50 && merged.length < totalCount) {
         const data = await fetchLodgings(nextPage, 50, currentFilters, currentSorteer);
-        const rawList = Array.isArray(data?.data) ? data.data : [];
+        const rawList = lodgingRowsFromApiPayload(data);
         if (!rawList.length) break;
         const newItems = rawList.map(item => parseLodging(item));
         merged = merged.concat(newItems);
@@ -2136,6 +2181,13 @@ export default function App() {
               onClick={() => setDisplayMode("table")}
             >
               Tabel
+            </button>
+            <button
+              type="button"
+              className={`rounded-btn py-2 px-3 text-xs font-semibold transition-all duration-200 ${displayMode === "map" ? "bg-yd-black text-white border border-yd-black" : "bg-white text-yd-black border border-yd-border hover:bg-yd-bg"}`}
+              onClick={() => setDisplayMode("map")}
+            >
+              Kaart
             </button>
           </div>
           <select
@@ -2407,7 +2459,57 @@ export default function App() {
           </div>
         )}
 
-        {displayMode !== "table" && zichtbaar.map((prop, idx) => {
+        {displayMode === "map" && (
+          <div className="col-span-full w-full">
+            <PropertyMapView
+              items={zichtbaar}
+              renderPropertyCard={(prop) => {
+                const ai = getCardAi(prop.id, prop);
+                const fullAi = enriched[prop.id];
+                const uitkomst = outcomes[prop.id];
+                const isVerborgen = hidden.includes(prop.id);
+                const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
+                const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
+                return (
+                  <PropertyCard
+                    key={prop.id}
+                    prop={prop}
+                    fullAi={fullAi}
+                    ai={ai}
+                    outcome={uitkomst}
+                    enriching={enrichingIds.has(prop.id)}
+                    isVerborgen={isVerborgen}
+                    heeftPortfolio={heeftPortfolio}
+                    portfolioAantal={portfolioAantal}
+                    uitkomstLabel={uitkomstLabel}
+                    onCardClick={() => {
+                      setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
+                      setSelected(prop);
+                      setView("dossier");
+                      if (!enriched[prop.id] && !enrichingIds.has(prop.id)) {
+                        const portfolio = prop.phoneNorm && phoneGroups[prop.phoneNorm]?.length > 1
+                          ? { count: phoneGroups[prop.phoneNorm].length, names: phoneGroups[prop.phoneNorm].map(id => properties.find(p => p.id === id)?.name || id) }
+                          : null;
+                        setEnrichingIds(s => new Set([...s, prop.id]));
+                        enrichProperty(prop, portfolio)
+                          .then(result => { setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; }); })
+                          .catch(() => {})
+                          .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
+                      }
+                    }}
+                    onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
+                    onOutcome={v => slaUitkomstOp(prop.id, v)}
+                    phoneGroups={phoneGroups}
+                    onInteresseClick={(p) => setInteressePopupProp(p)}
+                    animationStyle={{}}
+                  />
+                );
+              }}
+            />
+          </div>
+        )}
+
+        {displayMode === "cards" && zichtbaar.map((prop, idx) => {
           const ai = getCardAi(prop.id, prop);
           const fullAi = enriched[prop.id];
           const uitkomst = outcomes[prop.id];
@@ -2450,8 +2552,46 @@ export default function App() {
           );
         })}
 
-        {!loading && zichtbaar.length === 0 && (
-          <div className="text-center text-yd-muted py-10 text-sm">Geen panden gevonden met deze filters.</div>
+        {!loading && !error && zichtbaar.length === 0 && (
+          <div className="text-center py-10 px-4 max-w-lg mx-auto flex flex-col gap-4">
+            {properties.length === 0 ? (
+              <>
+                <p className="text-sm text-yd-muted leading-relaxed">
+                  <span className="font-semibold text-yd-black block mb-1.5">Geen panden van de server.</span>
+                  Controleer of je bent ingelogd (zonder sessie weigert de API vaak data). Als de database nog leeg is, zie je ook niets. Probeer <strong>Opnieuw</strong> of laad tijdelijk voorbeelddata.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <button type="button" onClick={() => laadPanden(1, filters)} className="rounded-btn py-2 px-4 text-sm font-semibold border border-yd-border bg-white hover:bg-yd-bg text-yd-black">
+                    Opnieuw laden
+                  </button>
+                  <button type="button" onClick={loadDemoPanden} className="rounded-btn py-2 px-4 text-sm font-semibold border border-dashed border-yd-border bg-yd-bg hover:bg-white text-yd-black">
+                    Demodata tonen
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-yd-muted leading-relaxed">
+                  <span className="font-semibold text-yd-black block mb-1.5">{properties.length} panden geladen, geen enkele zichtbaar.</span>
+                  Ze worden waarschijnlijk uitgefilterd (bv. &quot;Alleen met AI&quot;, zonder agentuur, uitsluiten van uitkomsten) of staan als verborgen. Reset filters of toon verborgen panden in het filterpaneel.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <button type="button" onClick={resetFiltersToDefault} className="rounded-btn py-2 px-4 text-sm font-semibold border border-yd-border bg-white hover:bg-yd-bg text-yd-black">
+                    Filters resetten
+                  </button>
+                  {hidden.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setHidden([]); save("hidden", []); }}
+                      className="rounded-btn py-2 px-4 text-sm font-semibold border border-yd-border bg-white hover:bg-yd-bg text-yd-black"
+                    >
+                      Verberg-lijst wissen ({hidden.length})
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* INTERESSE POPUP (from card) */}
