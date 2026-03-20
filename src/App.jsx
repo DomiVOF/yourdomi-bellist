@@ -1,7 +1,8 @@
 // YourDomi Bellijst v2.2 — redesign: Tailwind + Nunito + lucide-react
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, ChevronLeft, ChevronRight } from "lucide-react";
 import PropertyMapView from "./components/PropertyMapView.jsx";
+import { isOnlineWithinLastDays } from "./lib/listingNew.js";
 
 // --- DESIGN TOKENS (light, gold-accent theme) --------------------------------
 const T = {
@@ -44,7 +45,10 @@ function getToken() { try { return localStorage.getItem("yd_token") || ""; } cat
 function getHeaders() { return { "x-auth-token": getToken() }; }
 function postHeaders() { return { "Content-Type": "application/json", "x-auth-token": getToken() }; }
 
-async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "score") {
+/** Panden per API-pagina (`size` query param); ook gebruikt voor fill/paginering in de UI. */
+const LODGINGS_PAGE_SIZE = 100;
+
+async function fetchLodgings(page = 1, pageSize = LODGINGS_PAGE_SIZE, filters = {}, sorteer = "platform") {
   const params = new URLSearchParams({ page, size: pageSize });
   if (filters.zoek)         params.set("zoek", filters.zoek);
   if (filters.gemeente)     params.set("gemeente", filters.gemeente);
@@ -52,14 +56,16 @@ async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "s
   if (filters.status)       params.set("status", filters.status);
   if (filters.minSlaap)     params.set("minSlaap", filters.minSlaap);
   if (filters.maxSlaap)     params.set("maxSlaap", filters.maxSlaap);
-  if (filters.heeftTelefoon) params.set("heeftTelefoon", "1");
+  // Bellijst: nooit panden zonder telefoon ophalen
+  params.set("heeftTelefoon", "1");
   if (filters.heeftEmail)   params.set("heeftEmail", "1");
   if (filters.heeftWebsite) params.set("heeftWebsite", "1");
   if (filters.belstatus)    params.set("belstatus", filters.belstatus);
   if (filters.regio)        params.set("regio", filters.regio);
   if (filters.type)         params.set("type", filters.type);
   if (filters.onlineSindsVanaf) params.set("onlineSindsVanaf", filters.onlineSindsVanaf);
-  if (sorteer && sorteer !== "score") params.set("sorteer", sorteer);
+  // "platform" = client-side sort alleen; geen server-param
+  if (sorteer && sorteer !== "platform") params.set("sorteer", sorteer);
 
   const r = await fetch(`${API_URL}/api/panden?${params}`, {
     headers: getHeaders(),
@@ -84,7 +90,7 @@ function lodgingRowsFromApiPayload(data) {
   return [];
 }
 
-async function fetchPagesWithFill(startPage = 1, pageSize = 50, filters = {}, sorteer = "score") {
+async function fetchPagesWithFill(startPage = 1, pageSize = LODGINGS_PAGE_SIZE, filters = {}, sorteer = "platform") {
   let currentPage = startPage;
   let allItems = [];
   let meta = null;
@@ -107,14 +113,14 @@ async function fetchPagesWithFill(startPage = 1, pageSize = 50, filters = {}, so
   return { items: allItems, meta };
 }
 
-async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "score") {
+async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "platform") {
   const normalized = normalizePhoneForMatch(phone);
   const emailNorm = email?.toLowerCase().trim();
   let page = 1;
   const found = [];
 
   while (page <= 10) {
-    const data = await fetchLodgings(page, 50, {}, sorteer);
+    const data = await fetchLodgings(page, LODGINGS_PAGE_SIZE, {}, sorteer);
     const rawList = lodgingRowsFromApiPayload(data);
     if (!rawList.length) break;
     const items = rawList.map(item => parseLodging(item));
@@ -129,7 +135,7 @@ async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "
         found.push(p.id);
       }
     });
-    if (items.length < 50) break;
+    if (items.length < LODGINGS_PAGE_SIZE) break;
     page += 1;
   }
 
@@ -196,7 +202,7 @@ async function saveOutcomeToServer(id, outcome, note, contactNaam) {
 // --- DEMO DATA GENERATOR -----------------------------------------------------
 // 200 realistische Vlaamse vakantiewoningen, gesimuleerd als echte TV-registerdata
 // Dit wordt alleen gebruikt als de TV API niet bereikbaar is vanuit de browser (CORS)
-function buildDemoData(page = 1, size = 50) {
+function buildDemoData(page = 1, size = LODGINGS_PAGE_SIZE) {
   const gemns = [
     {n:"Koksijde",p:"West-Vlaanderen",pc:"8670",pre:"WVL"},
     {n:"Koksijde",p:"West-Vlaanderen",pc:"8670",pre:"WVL"},
@@ -498,16 +504,8 @@ Schrijf vooral een eenvoudige samenvatting in het Nederlands:
 - Beschrijf in 1–2 zinnen HOE yourdomi concreet kan helpen (beheer, optimalisatie, ontzorging, betere bezetting/prijzen).
 - Bepaal of dit waarschijnlijk een agentuur/beheerskantoor is of de eigenaar zelf (op basis van email/telefoon/website/naam).
 
-Scorelogica:
-- HEET = eigenaar (of vermoed eigenaar) beheert zelf en er is duidelijk ruimte voor verbetering (online zichtbaarheid, reviews, pricing, tijdsdruk).
-- WARM = al redelijk goed geregeld, maar nog enkele duidelijke verbeterpunten.
-- KOUD = duidelijk professioneel beheerd of weinig ruimte voor extra meerwaarde.
-
 Geef ALLEEN deze JSON (geen markdown):
 {
-  "score": "HEET"|"WARM"|"KOUD",
-  "scoreReden": "Korte uitleg waarom dit pand HEET/WARM/KOUD is, met focus op huidige situatie van de eigenaar (zelfbeheer/agentuur, online zichtbaarheid, kwaliteit) en ruimte voor verbetering. Max 2 zinnen.",
-  "prioriteit": 1-10,
   "openingszin": "Als NIET online gevonden: stel meteen een vraag of ze online zichtbaar zijn en waar ze staan. Als WEL gevonden: verwijs concreet naar hun listing/locatie/portfolio. Max 2 zinnen. NOOIT jezelf introduceren als 'wij zijn...', altijd starten vanuit hun situatie.",
   "consultieveVragen": [
     "Vraag 1 - situatie: bv. Beheert u de verhuur momenteel volledig zelf, of werkt u samen met iemand?",
@@ -566,7 +564,7 @@ Contracttypes: visibility=10% (plaatsing), partial=20% (communicatie+prijszettin
     headers: postHeaders(),
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 2500,
+      max_tokens: 2200,
       tools: [{ type: "web_search_20250305", name: "web_search" }],
       messages: [{ role: "user", content: prompt }],
     }),
@@ -581,7 +579,6 @@ Contracttypes: visibility=10% (plaatsing), partial=20% (communicatie+prijszettin
     return JSON.parse(clean.slice(s, e + 1));
   } catch {
     return {
-      score: "WARM", scoreReden: "Analyse mislukt", prioriteit: 5,
       openingszin: `Goedemiddag, ik bel over uw vakantiewoning in ${property.municipality}.`,
       pitchhoek: "yourdomi.be kan uw kortetermijnverhuur volledig beheren.",
       zwaktes: [], reviewThemes: [], slechteReviews: false, airbnb: { gevonden: false }, booking: { gevonden: false },
@@ -726,7 +723,6 @@ async function createYourDomiBoards() {
     { title: "Contract advies",  type: "text",     defaults: null },
     { title: "Slaapplaatsen",    type: "text",     defaults: null },
     { title: "Registratie TV",   type: "text",     defaults: null },
-    { title: "AI Score",         type: "status",   defaults: JSON.stringify({ labels: { 0:"🔥 HEET", 1:"W WARM", 2:"K KOUD" } }) },
   ];
 
   const accColIds = {};
@@ -1105,7 +1101,6 @@ Only include columns where you have a real value. Skip columns you can't confide
       ai?.contractadvies ? `📋 Formule: ${ai.contractadvies === "full" ? "Volledig beheer 25%" : ai.contractadvies === "partial" ? "Gedeeld beheer 20%" : "Zichtbaarheid 10%"}` : null,
       ai?.geschatMaandelijksInkomen ? `💰 Omzet nu: ${ai.geschatMaandelijksInkomen} | Met yourdomi: ${ai.potentieelMetYourDomi || "-"}` : null,
       plat ? `🌐 Online: ${plat}` : null,
-      ai?.scoreReden ? `📊 AI score reden: ${ai.scoreReden}` : null,
       ai?.openingszin ? `📞 Openingszin: "${ai.openingszin}"` : null,
     ].filter(Boolean).join("\n");
 
@@ -1141,7 +1136,6 @@ function buildInternalDebriefUrl(property, ai, note) {
     property.phone ? `📞 ${property.phone}` : null,
     ``,
     `💼 AI ANALYSE`,
-    ai?.score ? `Score: ${ai.score} — ${ai.scoreReden || ""}` : null,
     ai?.geschatMaandelijksInkomen ? `Huidig inkomen: ${ai.geschatMaandelijksInkomen}/maand` : null,
     ai?.potentieelMetYourDomi ? `Potentieel: ${ai.potentieelMetYourDomi}/maand` : null,
     ai?.contractadvies ? `Formule: ${ai.contractadvies === "full" ? "Volledig beheer (25%)" : ai.contractadvies === "partial" ? "Gedeeld beheer (20%)" : "Zichtbaarheid (10%)"}` : null,
@@ -1211,13 +1205,6 @@ function MeetTranscriptNotetaker({ onFilled }) {
     </div>
   );
 }
-
-// --- SCORE CONFIG -------------------------------------------------------------
-const SCORES = {
-  HEET:  { kleur: T.orange,     pale: T.orangePale,  border: "#E07B4A", emoji: "🔥", label: "HEET" },
-  WARM:  { kleur: "#E8A838",    pale: "#FDF5E0",     border: "#E8A838", emoji: null, label: "WARM" },
-  KOUD:  { kleur: T.greenLight, pale: T.greenPale,   border: T.greenLight, emoji: null, label: "KOUD" },
-};
 
 function normalizePhoneForMatch(phone) {
   if (!phone) return null;
@@ -1299,6 +1286,35 @@ function isLikelyAgency(property, enrichedData = null) {
   return false;
 }
 
+function buildPhoneGroupsFromItems(items) {
+  const groups = {};
+  for (const it of items || []) {
+    const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
+    if (!key) continue;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(it.id);
+  }
+  return groups;
+}
+
+/**
+ * Alleen panden voor de bellijst: met telefoon, geen agentuur/makelaar (AI of heuristiek),
+ * en niet hetzelfde vaste nummer op ≥4 panden (bulk-kantoor).
+ */
+function filterToBellijstPanden(items, enrichedById = {}) {
+  if (!items?.length) return [];
+  const groups = buildPhoneGroupsFromItems(items);
+  return items.filter((p) => {
+    const key = p.phoneNorm || normalizePhoneForMatch(p.phone);
+    if (!key) return false;
+    const en = enrichedById[p.id];
+    if (en?.waarschuwingAgentuur === true) return false;
+    if (isLikelyAgency(p, en || null)) return false;
+    if ((groups[key]?.length || 0) >= 4) return false;
+    return true;
+  });
+}
+
 // Single AI insight line for card: missing platform > no agency > poor site > high reviews
 function getCardAiSignal(fullAi, ai) {
   if (!ai && !fullAi) return null;
@@ -1347,42 +1363,41 @@ function PropertyCard({
   addPhone(prop.phone); addPhone(prop.phone2); addPhone(prop["contact-phone"]); addPhone(prop.telefoon); addPhone(prop.phone1);
   if (Array.isArray(prop.phones)) prop.phones.forEach(addPhone);
   const email = prop.email || prop["contact-email"];
-  const scoreNum = fullAi?.prioriteit != null ? String(Math.min(99, Math.max(0, fullAi.prioriteit * 10))).padStart(2, "0") : (fullAi?.score === "HEET" ? "85" : fullAi?.score === "WARM" ? "60" : fullAi?.score === "KOUD" ? "40" : null);
   const aiSignal = getCardAiSignal(fullAi, ai);
   const platformLabels = [];
   if (ai?.airbnb?.gevonden) platformLabels.push("Airbnb");
   if (ai?.booking?.gevonden) platformLabels.push("Booking");
   const platformStr = platformLabels.length ? platformLabels.join(", ") : "—";
-  const sc = fullAi?.score ? SCORES[fullAi.score] : null;
   const isAgency = fullAi?.waarschuwingAgentuur ||
     isLikelyAgency(prop, fullAi || null) ||
     (prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) >= 4);
   const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
   const onlineSindsTekst = formatOnlineSindsMaandJaar(prop);
+  const isNieuw = isOnlineWithinLastDays(prop, 7);
 
   return (
     <div
-      className={`rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
+      className={`relative rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
       style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)", ...animationStyle }}
     >
+      {isNieuw && (
+        <span
+          className="absolute top-3 right-3 z-10 rounded-full bg-yd-red px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white shadow-sm pointer-events-none select-none"
+          aria-label="Nieuw — online binnen 7 dagen"
+        >
+          New!
+        </span>
+      )}
       <div
         role="button"
         tabIndex={0}
-        className="p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito"
+        className={`p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito ${isNieuw ? "pt-11" : ""}`}
         onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCardClick(); } }}
         onClick={onCardClick}
       >
-        {/* TOP ROW: name left, score pill + HEET pill right next to each other */}
-        <div className="flex justify-between items-start gap-3">
+        {/* TOP ROW: naam */}
+        <div className={`flex justify-between items-start gap-3 ${isNieuw ? "pr-[4.25rem]" : ""}`}>
           <h3 className="text-lg font-bold text-[#1A1A1A] leading-tight line-clamp-2 flex-1 min-w-0 font-nunito">{prop.name}</h3>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {scoreNum != null && (
-              <span className="rounded-[999px] bg-[#1A1A1A] text-white text-xs px-3 py-0.5 font-medium">{scoreNum}</span>
-            )}
-            {sc?.label === "HEET" && (
-              <span className="rounded-[999px] bg-[#FF6B35] text-white text-xs px-2 py-0.5 font-semibold">HEET</span>
-            )}
-          </div>
         </div>
 
         {/* SECOND ROW: full address */}
@@ -1435,7 +1450,7 @@ function PropertyCard({
         {/* TAGS ROW */}
         <div className="flex flex-wrap gap-1.5 mt-2">
           {prop.status && <span className="rounded-full px-2 py-0.5 text-xs bg-yd-bg text-yd-muted border border-yd-border">{prop.status}</span>}
-          {fullAi && !enriching && (fullAi.score != null || fullAi.prioriteit != null) && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">AI-gescand</span>}
+          {fullAi && !enriching && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-700 border border-emerald-200">AI-gescand</span>}
           {poorWebsite && <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Slechte site</span>}
           {heeftPortfolio && <span className="rounded-full px-2 py-0.5 text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">🏘 Portfolio</span>}
         </div>
@@ -1560,10 +1575,12 @@ export default function App() {
     const raw = load("enriched", {});
     const clean = {};
     for (const [k, v] of Object.entries(raw)) {
-      if (v && typeof v === "object" && typeof v.score === "string") clean[k] = v;
+      if (v && typeof v === "object") clean[k] = v;
     }
     return clean;
   });
+  const enrichedRef = useRef(enriched);
+  enrichedRef.current = enriched;
   const [platformScan, setPlatformScan] = useState({}); // id -> { website, airbnb, booking } from background scan
   const [outcomes, setOutcomes] = useState(() => load("outcomes", {}));
   const [notes, setNotes] = useState(() => load("notes", {}));
@@ -1606,12 +1623,9 @@ export default function App() {
     status: "",
     minSlaap: "",
     maxSlaap: "",
-    score: "",
     heeftWebsite: false,
-    heeftTelefoon: false,
     heeftEmail: false,
     heeftAi: false,
-    geenAgentuur: false,
     belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
     regio: "",
     type: "",
@@ -1624,7 +1638,7 @@ export default function App() {
   const [filters, setFilters] = useState(initialFilters);       // toegepast op lijst + server
   const [rawFilters, setRawFilters] = useState(initialFilters); // live UI-waarden
   const [filterOpen, setFilterOpen] = useState(false);
-  const [sorteer, setSorteer] = useState("score"); // score | naam | slaap | gemeente
+  const [sorteer, setSorteer] = useState("platform"); // platform | naam | slaap | gemeente | …
   const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table" | "map"
   const [aiGestart, setAiGestart] = useState(false);
   const [meta, setMeta] = useState({ provinces: [], types: [], regios: [] });
@@ -1658,13 +1672,14 @@ export default function App() {
     const sortToUse = currentSorteer || sorteer;
     const next = basePage + 1;
     try {
-      const result = await fetchPagesWithFill(next, 50, filtersToUse, sortToUse);
+      const result = await fetchPagesWithFill(next, LODGINGS_PAGE_SIZE, filtersToUse, sortToUse);
       if (!result.items.length) {
         nextPageCacheRef.current = null;
         return;
       }
       if (myToken !== fetchTokenRef.current) return;
-      nextPageCacheRef.current = { page: next, items: result.items, meta: result.meta };
+      const filtered = filterToBellijstPanden(result.items, enrichedRef.current);
+      nextPageCacheRef.current = { page: next, items: filtered, meta: result.meta };
     } catch {
       nextPageCacheRef.current = null;
     }
@@ -1675,26 +1690,19 @@ export default function App() {
     const myToken = token ?? fetchTokenRef.current;
     setLoading(true); setError(null);
     try {
-      const { items, meta } = await fetchPagesWithFill(p, 50, currentFilters || {}, sorteer);
+      const { items, meta } = await fetchPagesWithFill(p, LODGINGS_PAGE_SIZE, currentFilters || {}, sorteer);
       if (myToken !== fetchTokenRef.current) return;
-      setProperties(items);
+      const filtered = filterToBellijstPanden(items, enrichedRef.current);
+      setProperties(filtered);
       const total = Math.max(0, parseInt(meta?.total, 10) || meta?.count || items.length || 0);
       setTotalCount(total);
       const dbTotal = Math.max(0, parseInt(meta?.dbTotal, 10) || 0);
       if (dbTotal) setDbTotalCount(dbTotal);
-      const groups = {};
-      items.forEach(it => {
-        const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
-        if (key) {
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(it.id);
-        }
-      });
-      setPhoneGroups(groups);
-      if (items.length > 0 && !selected) setSelected(items[0]);
-      const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
+      setPhoneGroups(buildPhoneGroupsFromItems(filtered));
+      if (filtered.length > 0 && !selected) setSelected(filtered[0]);
+      const pagesUsed = Math.max(1, Math.ceil(items.length / LODGINGS_PAGE_SIZE));
       lastPageLoadedRef.current = p + pagesUsed - 1;
-      if (p * 50 < total) {
+      if (p * LODGINGS_PAGE_SIZE < total) {
         preloadNextPage(p, currentFilters || filters, sorteer);
       } else {
         nextPageCacheRef.current = null;
@@ -1739,23 +1747,16 @@ export default function App() {
 
   const loadDemoPanden = () => {
     setError(null);
-    const demo = buildDemoData(1, 50);
+    const demo = buildDemoData(1, LODGINGS_PAGE_SIZE);
     const rows = lodgingRowsFromApiPayload(demo);
     const items = rows.map(item => parseLodging(item));
-    setProperties(items);
+    const filtered = filterToBellijstPanden(items, enrichedRef.current);
+    setProperties(filtered);
     const total = Math.max(0, parseInt(demo.meta?.total, 10) || demo.meta?.count || items.length || 0);
     setTotalCount(total);
     setDbTotalCount(null);
-    const groups = {};
-    items.forEach(it => {
-      const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
-      if (key) {
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(it.id);
-      }
-    });
-    setPhoneGroups(groups);
-    setSelected(prev => prev || items[0] || null);
+    setPhoneGroups(buildPhoneGroupsFromItems(filtered));
+    setSelected(prev => prev || filtered[0] || null);
     lastPageLoadedRef.current = 1;
     nextPageCacheRef.current = null;
   };
@@ -1781,7 +1782,7 @@ export default function App() {
     }
     if (toEnrich.length === 0) return;
 
-    const PARALLEL = 3; // 3 tegelijk om rate limits te vermijden
+    const PARALLEL = 5; // parallelle verzoeken; pas aan bij rate limits
     let idx = 0;
 
     const volgende = async () => {
@@ -1800,6 +1801,10 @@ export default function App() {
           save("enriched", updated);
           return updated;
         });
+        if (result?.waarschuwingAgentuur === true) {
+          setProperties(prev => prev.filter(x => x.id !== prop.id));
+          setSelected(s => (s?.id === prop.id ? null : s));
+        }
         saveEnrichment(prop.id, result)
           .then(() => {
             setDbEnrichmentCount(c => (typeof c === "number" ? c + 1 : c));
@@ -1835,6 +1840,7 @@ export default function App() {
         if (serverData && Object.keys(serverData).length > 0) {
           setEnriched(serverData);
           save("enriched", serverData);
+          setProperties(prev => filterToBellijstPanden(prev, serverData));
         }
       }).catch(() => {});
       loadPlatformScan().then(scanData => {
@@ -1949,7 +1955,6 @@ export default function App() {
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
     if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
-    if (filters.score && enriched[p.id]?.score !== filters.score) return false;
     return true;
   });
 
@@ -1979,13 +1984,6 @@ export default function App() {
     const ai = getCardAi(p.id, p);
     const outcome = outcomes[p.id];
     if (filters.heeftAi && !enriched[p.id]) return false;
-    if (filters.geenAgentuur) {
-      const aiConfirmed = enriched[p.id]?.waarschuwingAgentuur === true;
-      const heuristicFlag = isLikelyAgency(p, enriched[p.id] || null);
-      const bulkPhone = p.phoneNorm &&
-        (phoneGroups[p.phoneNorm]?.length || 0) >= 4;
-      if (aiConfirmed || heuristicFlag || bulkPhone) return false;
-    }
     if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
@@ -1999,17 +1997,8 @@ export default function App() {
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
     if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
-    if (filters.score && enriched[p.id]?.score !== filters.score) return false;
-
     const ai = getCardAi(p.id, p);
     if (filters.heeftAi && !enriched[p.id]) return false;
-    if (filters.geenAgentuur) {
-      const aiConfirmed = enriched[p.id]?.waarschuwingAgentuur === true;
-      const heuristicFlag = isLikelyAgency(p, enriched[p.id] || null);
-      const bulkPhone = p.phoneNorm &&
-        (phoneGroups[p.phoneNorm]?.length || 0) >= 4;
-      if (aiConfirmed || heuristicFlag || bulkPhone) return false;
-    }
     if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
     if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
     if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
@@ -2030,12 +2019,12 @@ export default function App() {
       let merged = [...properties];
       let visibleCount = merged.filter(isVisible).length;
       let nextPage = lastPageLoadedRef.current + 1;
-      while (visibleCount < 50 && merged.length < totalCount) {
-        const data = await fetchLodgings(nextPage, 50, currentFilters, currentSorteer);
+      while (visibleCount < LODGINGS_PAGE_SIZE && merged.length < totalCount) {
+        const data = await fetchLodgings(nextPage, LODGINGS_PAGE_SIZE, currentFilters, currentSorteer);
         const rawList = lodgingRowsFromApiPayload(data);
         if (!rawList.length) break;
-        const newItems = rawList.map(item => parseLodging(item));
-        merged = merged.concat(newItems);
+        const parsed = rawList.map(item => parseLodging(item));
+        merged = filterToBellijstPanden([...merged, ...parsed], enrichedRef.current);
         lastPageLoadedRef.current = nextPage;
         nextPage += 1;
         visibleCount = merged.filter(isVisible).length;
@@ -2044,15 +2033,7 @@ export default function App() {
       if (myToken !== fetchTokenRef.current) return;
       if (merged.length !== properties.length) {
         setProperties(merged);
-        const groups = {};
-        merged.forEach(it => {
-          const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
-          if (key) {
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(it.id);
-          }
-        });
-        setPhoneGroups(groups);
+        setPhoneGroups(buildPhoneGroupsFromItems(merged));
       }
     } catch (e) {
       console.error("fillPage error", e);
@@ -2064,25 +2045,13 @@ export default function App() {
   }, [loading, totalCount, properties, isVisible]);
 
   useEffect(() => {
-    if (zichtbaar.length < 50 && zichtbaar.length < totalCount && !loading) {
+    if (zichtbaar.length < LODGINGS_PAGE_SIZE && zichtbaar.length < totalCount && !loading) {
       fillPage(filters, sorteer);
     }
   }, [zichtbaar.length, totalCount, loading, fillPage, filters, sorteer]);
 
-  // Sortering (Airbnb/Booking get extra boost so callers can contact them sooner)
+  // Sortering (Airbnb/Booking eerst helpt callers)
   zichtbaar.sort((a, b) => {
-    if (sorteer === "score") {
-      const sOrd = { HEET: 0, WARM: 1, KOUD: 2 };
-      const aS = sOrd[enriched[a.id]?.score] ?? 3;
-      const bS = sOrd[enriched[b.id]?.score] ?? 3;
-      if (aS !== bS) return aS - bS;
-      let aP = enriched[a.id]?.prioriteit ?? 5, bP = enriched[b.id]?.prioriteit ?? 5;
-      const aPlatform = getCardAi(a.id, a)?.airbnb?.gevonden || getCardAi(a.id, a)?.booking?.gevonden;
-      const bPlatform = getCardAi(b.id, b)?.airbnb?.gevonden || getCardAi(b.id, b)?.booking?.gevonden;
-      if (aPlatform && !bPlatform) aP += 2;
-      if (bPlatform && !aPlatform) bP += 2;
-      return bP - aP;
-    }
     if (sorteer === "platform") {
       const aPlat = getCardAi(a.id, a)?.airbnb?.gevonden || getCardAi(a.id, a)?.booking?.gevonden;
       const bPlat = getCardAi(b.id, b)?.airbnb?.gevonden || getCardAi(b.id, b)?.booking?.gevonden;
@@ -2104,8 +2073,6 @@ export default function App() {
 
   const uniekeProvincies = [...new Set(properties.map(p => p.province).filter(Boolean))].sort();
 
-  const heetCount = properties.filter(p => enriched[p.id]?.score === "HEET").length;
-  const warmCount = properties.filter(p => enriched[p.id]?.score === "WARM").length;
   const interesseCount = Object.values(outcomes).filter(o => o === "gebeld_interesse").length;
   const verrijktCount = properties.filter(p => enriched[p.id]).length;
   const verrijktDb = (dbEnrichmentCount != null && Number.isFinite(dbEnrichmentCount)) ? dbEnrichmentCount : null;
@@ -2146,20 +2113,29 @@ export default function App() {
           if (!listSnapshot) return;
 
           if (listSnapshot.displayMode) setDisplayMode(listSnapshot.displayMode);
-          if (listSnapshot.sorteer) setSorteer(listSnapshot.sorteer);
-          if (listSnapshot.rawFilters) setRawFilters(listSnapshot.rawFilters);
+          if (listSnapshot.sorteer) {
+            setSorteer(listSnapshot.sorteer === "score" ? "platform" : listSnapshot.sorteer);
+          }
+          if (listSnapshot.rawFilters) {
+            const { score: _s, heeftTelefoon: _ht, geenAgentuur: _ga, ...rf } = listSnapshot.rawFilters;
+            setRawFilters(rf);
+          }
 
           const nextFilters = listSnapshot.filters || listSnapshot.rawFilters;
+          const nextFiltersClean = nextFilters ? (() => {
+            const { score: _s2, heeftTelefoon: _ht2, geenAgentuur: _ga2, ...rest } = nextFilters;
+            return rest;
+          })() : null;
           const nextPage = typeof listSnapshot.page === "number" ? listSnapshot.page : 1;
-          if (nextFilters) {
+          if (nextFiltersClean) {
             // Unlike applyFilters(), this preserves the previous page + doesn't blank the list.
             fetchTokenRef.current += 1;
             const myToken = fetchTokenRef.current;
             nextPageCacheRef.current = null;
             fillingRef.current = false;
             setPage(nextPage);
-            setFilters(nextFilters);
-            laadPanden(nextPage, nextFilters, myToken);
+            setFilters(nextFiltersClean);
+            laadPanden(nextPage, nextFiltersClean, myToken);
           } else {
             setPage(nextPage);
           }
@@ -2244,7 +2220,7 @@ export default function App() {
               {mondayActief ? <span className="text-score-interesse font-semibold">Monday ✓</span> : <span className="text-yd-muted">Integraties</span>}
             </button>
             <div className="flex items-center gap-0 flex-wrap">
-              <Stat label="Heet" val={heetCount} accent />
+              <Stat label="Panden" val={properties.length} />
               <span className="w-px h-5 bg-yd-border mx-2 flex-shrink-0" aria-hidden />
               <Stat label="Interesse" val={interesseCount} />
               <span className="w-px h-5 bg-yd-border mx-2 flex-shrink-0" aria-hidden />
@@ -2294,7 +2270,6 @@ export default function App() {
           setSorteer(e.target.value);
         }}
           >
-            <option value="score">Sorteren: AI Score</option>
             <option value="platform">Sorteren: Airbnb/Booking eerst</option>
             <option value="naam">Sorteren: Naam A-Z</option>
             <option value="gemeente">Sorteren: Gemeente</option>
@@ -2333,8 +2308,6 @@ export default function App() {
         {filterOpen && (
           <div className="pt-3 pb-4 px-4 border-t border-yd-border bg-yd-bg">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-2">
-              <FilterSelect label="Score" value={rawFilters.score} onChange={v => setRawFilters(f => ({ ...f, score: v }))}
-                options={[["", "Alle scores"], ["HEET", "🔥 Heet"], ["WARM", "W Warm"], ["KOUD", "K Koud"]]} />
               <FilterSelect label="Provincie" value={rawFilters.provincie} onChange={v => setRawFilters(f => ({ ...f, provincie: v }))}
                 options={[["", "Alle provincies"], ...(meta.provinces.length ? meta.provinces : uniekeProvincies).map(p => [p, p])]} />
               <FilterSelect label="Toeristische regio" value={rawFilters.regio} onChange={v => setRawFilters(f => ({ ...f, regio: v }))}
@@ -2362,10 +2335,6 @@ export default function App() {
             <div className="pt-2.5 mt-1 border-t border-yd-border">
               <div className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold mb-2">Contactgegevens aanwezig</div>
               <div className="flex gap-4 items-center flex-wrap">
-                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
-                  <input type="checkbox" checked={rawFilters.heeftTelefoon} onChange={e => setRawFilters(f => ({ ...f, heeftTelefoon: e.target.checked }))} className="rounded border-yd-border" />
-                  Telefoon
-                </label>
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
                   <input type="checkbox" checked={rawFilters.heeftEmail} onChange={e => setRawFilters(f => ({ ...f, heeftEmail: e.target.checked }))} className="rounded border-yd-border" />
                   E-mail
@@ -2399,10 +2368,6 @@ export default function App() {
                 <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer">
                   <input type="checkbox" checked={rawFilters.heeftAi} onChange={e => setRawFilters(f => ({ ...f, heeftAi: e.target.checked }))} className="rounded border-yd-border" />
                   Alleen AI-gescand
-                </label>
-                <label className="flex items-center gap-1.5 text-xs text-yd-muted cursor-pointer" title="Verberg panden waar telefoon/email waarschijnlijk een makelaar of agentuur is">
-                  <input type="checkbox" checked={rawFilters.geenAgentuur} onChange={e => setRawFilters(f => ({ ...f, geenAgentuur: e.target.checked }))} className="rounded border-yd-border" />
-                  Geen agentuur/makelaar
                 </label>
               </div>
             </div>
@@ -2459,9 +2424,6 @@ export default function App() {
               <thead>
                 <tr className="bg-yd-bg border-b-2 border-yd-border">
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Naam</th>
-                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">
-                    <button type="button" onClick={() => setSorteer(s => s === "score" ? s : "score")} className="font-semibold text-yd-black hover:text-yd-red transition-colors underline-offset-2 hover:underline">Score</button>
-                  </th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Straat</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Stad</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Postcode</th>
@@ -2469,7 +2431,9 @@ export default function App() {
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">E-mail</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Status</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Slaappl.</th>
-                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Platform</th>
+                  <th className="text-left py-2.5 px-3 font-semibold text-yd-black">
+                    <button type="button" onClick={() => setSorteer(s => s === "platform" ? s : "platform")} className="font-semibold text-yd-black hover:text-yd-red transition-colors underline-offset-2 hover:underline">Platform</button>
+                  </th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Agentuur</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Uitkomst</th>
                   <th className="text-left py-2.5 px-3 font-semibold text-yd-black">Actie</th>
@@ -2489,12 +2453,11 @@ export default function App() {
                     (p.phoneNorm && (phoneGroups[p.phoneNorm]?.length || 0) >= 4)
                   ) ? "⚠ Ja" : "—";
                   const rowOutcome = outcomes[p.id];
-                  const scoreNum = fullAi?.prioriteit != null ? String(Math.min(99, Math.max(0, fullAi.prioriteit * 10))).padStart(2, "0") : (fullAi?.score === "HEET" ? "85" : fullAi?.score === "WARM" ? "60" : fullAi?.score === "KOUD" ? "40" : null);
                   const hasPhone = !!(p.phone || p.phone2 || p["contact-phone"] || p.telefoon || p.phone1 || (Array.isArray(p.phones) && p.phones.length > 0));
                   return (
                   <tr
                     key={p.id || i}
-                    className={`border-b border-yd-border cursor-pointer hover:bg-[#F8FAFC] transition-colors ${enriched[p.id]?.score === "HEET" ? "bg-amber-50/80" : "bg-white even:bg-yd-bg/50"}`}
+                    className="border-b border-yd-border cursor-pointer hover:bg-[#F8FAFC] transition-colors bg-white even:bg-yd-bg/50"
                     onClick={() => {
                       setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
                       setSelected(p);
@@ -2505,7 +2468,13 @@ export default function App() {
                           : null;
                         setEnrichingIds(s => new Set([...s, p.id]));
                         enrichProperty(p, portfolio)
-                          .then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); })
+                          .then(result => {
+                            setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; });
+                            if (result?.waarschuwingAgentuur === true) {
+                              setProperties(prev => prev.filter(x => x.id !== p.id));
+                              setSelected(s => (s?.id === p.id ? null : s));
+                            }
+                          })
                           .catch(() => {})
                           .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; }));
                       }
@@ -2515,13 +2484,10 @@ export default function App() {
                       <button
                         type="button"
                         className="text-left w-full text-[#1A1A1A] font-semibold hover:underline focus:outline-none focus:underline"
-                        onClick={e => { e.stopPropagation(); setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode }); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
+                        onClick={e => { e.stopPropagation(); setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode }); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); if (result?.waarschuwingAgentuur === true) { setProperties(prev => prev.filter(x => x.id !== p.id)); setSelected(s => (s?.id === p.id ? null : s)); } }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
                       >
                         {p.name || "—"}
                       </button>
-                    </td>
-                    <td className="py-2 px-3">
-                      {scoreNum != null ? <span className="inline-flex rounded-[999px] bg-[#1A1A1A] text-white text-xs px-3 py-0.5 font-medium">{scoreNum}</span> : "—"}
                     </td>
                     <td className="py-2 px-3 text-yd-muted">{p.street || "—"}</td>
                     <td className="py-2 px-3 text-yd-muted">{p.municipality || "—"}</td>
@@ -2590,7 +2556,13 @@ export default function App() {
                           : null;
                         setEnrichingIds(s => new Set([...s, prop.id]));
                         enrichProperty(prop, portfolio)
-                          .then(result => { setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; }); })
+                          .then(result => {
+                            setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; });
+                            if (result?.waarschuwingAgentuur === true) {
+                              setProperties(prev => prev.filter(x => x.id !== prop.id));
+                              setSelected(s => (s?.id === prop.id ? null : s));
+                            }
+                          })
                           .catch(() => {})
                           .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
                       }
@@ -2636,7 +2608,13 @@ export default function App() {
                     : null;
                   setEnrichingIds(s => new Set([...s, prop.id]));
                   enrichProperty(prop, portfolio)
-                    .then(result => { setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; }); })
+                    .then(result => {
+                      setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; });
+                      if (result?.waarschuwingAgentuur === true) {
+                        setProperties(prev => prev.filter(x => x.id !== prop.id));
+                        setSelected(s => (s?.id === prop.id ? null : s));
+                      }
+                    })
                     .catch(() => {})
                     .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
                 }
@@ -2754,7 +2732,7 @@ export default function App() {
             setPage(next);
             const cached = nextPageCacheRef.current;
             if (cached && cached.page === next) {
-              const items = cached.items || [];
+              const items = filterToBellijstPanden(cached.items || [], enrichedRef.current);
               const meta = cached.meta || {};
               if (!items.length) return;
               setProperties(items);
@@ -2762,16 +2740,9 @@ export default function App() {
               setTotalCount(total);
               const dbTotal = Math.max(0, parseInt(meta?.dbTotal, 10) || 0);
               if (dbTotal) setDbTotalCount(dbTotal);
-              const groups = {};
-              items.forEach(it => {
-                if (it.phoneNorm) {
-                  if (!groups[it.phoneNorm]) groups[it.phoneNorm] = [];
-                  groups[it.phoneNorm].push(it.id);
-                }
-              });
-              setPhoneGroups(groups);
+              setPhoneGroups(buildPhoneGroupsFromItems(items));
               if (items.length > 0) setSelected(items[0]);
-              const pagesUsed = Math.max(1, Math.ceil(items.length / 50));
+              const pagesUsed = Math.max(1, Math.ceil(items.length / LODGINGS_PAGE_SIZE));
               lastPageLoadedRef.current = next + pagesUsed - 1;
               nextPageCacheRef.current = null;
               preloadNextPage(next, filters, sorteer);
@@ -2793,7 +2764,6 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
   const [imgErrors, setImgErrors] = useState({});
   const noteRef = useRef(null);
 
-  const sc = ai?.score ? SCORES[ai.score] : null;
   const rawImgs = [
     ...(ai?.airbnb?.fotoUrls || []),
     ...(ai?.booking?.fotoUrls || []),
@@ -2935,63 +2905,13 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
         )}
         {!enriching && ai && (
           <div>
-            {/* OMZET ANALYSE */}
-            {(ai.geschatMaandelijksInkomen || ai.potentieelMetYourDomi) && (
-              <div className="pt-6 animate-[fadeUp_0.4s_ease_0.05s_both]" style={{ animationName: "fadeUp" }}>
-                <div className={sectionHeaderClass}>Omzet analyse</div>
-                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-3 items-stretch">
-                  <div className="bg-white border border-[#EBEBEB] rounded-xl p-5">
-                    <div className="text-xs text-[#888888] mb-1.5">Huidig (geschat)</div>
-                    <div className="text-2xl font-extrabold text-[#374151] mb-0.5">{ai.geschatMaandelijksInkomen || "-"}</div>
-                    <div className="text-xs text-[#888888] mb-1">per maand . {ai.geschatBezetting || "?"} bezet</div>
-                    {ai.inkomensNota && <div className="text-xs text-[#888888] leading-snug mt-1">{ai.inkomensNota}</div>}
-                  </div>
-                  {ai.potentieelMetYourDomi && (() => {
-                    const parseRevenue = (s) => {
-                      if (!s || typeof s !== "string") return null;
-                      const m = s.match(/[\d.,]+/);
-                      if (!m) return null;
-                      const num = parseInt(m[0].replace(/[.\s]/g, ""), 10);
-                      return Number.isFinite(num) ? num : null;
-                    };
-                    const huidigNum = parseRevenue(ai.geschatMaandelijksInkomen);
-                    const metNum = parseRevenue(ai.potentieelMetYourDomi);
-                    const pct = (huidigNum != null && metNum != null && huidigNum > 0)
-                      ? Math.round(((metNum - huidigNum) / huidigNum) * 100)
-                      : null;
-                    return (
-                      <>
-                        <div className="hidden md:flex flex-col items-center justify-center gap-1 py-2">
-                          {pct != null && (
-                            <span className="text-lg font-extrabold text-[#22C55E]">+{pct}%</span>
-                          )}
-                          <span className="text-xs text-[#888888]">revenue increase</span>
-                        </div>
-                        <div className="bg-[#F8FAFC] border-2 border-[#1A1A1A] rounded-xl p-5 relative">
-                          <span className="absolute top-0 right-0 bg-[#E8231A] text-white text-[10px] font-bold uppercase px-2 py-0.5 rounded-bl-lg">Aanbevolen</span>
-                          <div className="text-xs text-[#888888] mb-1.5">Met yourdomi.be</div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-2xl font-extrabold text-[#1A1A1A]">{ai.potentieelMetYourDomi}</span>
-                            <TrendingUp className="w-6 h-6 text-[#22C55E] flex-shrink-0" aria-hidden />
-                          </div>
-                          {pct != null && <div className="text-sm font-semibold text-[#22C55E] mt-1 md:hidden">+{pct}% revenue increase</div>}
-                          <div className="text-xs text-[#888888] mb-1">per maand (prognose)</div>
-                          {ai.potentieelNota && <div className="text-xs text-[#374151] leading-snug">{ai.potentieelNota}</div>}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            )}
-
             {/* VERKOOPINTELLIGENTIE */}
             <div className="pt-6 animate-[fadeUp_0.4s_ease_0.08s_both]" style={{ animationName: "fadeUp" }}>
               <div className={sectionHeaderClass}>Verkoopintelligentie</div>
               <div className="bg-white border border-[#EBEBEB] rounded-xl p-5">
                 <div className="font-bold text-base text-[#1A1A1A] mb-2">Samenvatting</div>
                 <p className="text-sm text-[#374151] leading-relaxed m-0">
-                  {[ai.scoreReden, ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
+                  {[ai.pitchhoek, ai.eigenaarProfiel].filter(Boolean).join(" ")}
                 </p>
                 {(ai.locatieHighlights?.length || 0) > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">

@@ -13,6 +13,20 @@ import {
   mergeCoordsFromProps,
   buildNominatimJobs,
 } from "../lib/nominatimGeocode.js";
+import { isOnlineWithinLastDays } from "../lib/listingNew.js";
+
+/** Zelfde rood als Tailwind `yd-red` (#E8231A); afmetingen gelijk aan standaard Leaflet-marker. */
+const MAP_MARKER_ICON_RED = new L.Icon({
+  iconUrl: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 41" width="25" height="41"><path fill="#E8231A" d="M12.5 0C5.59 0 0 5.59 0 12.5c0 7.54 12.5 28.5 12.5 28.5S25 20.04 25 12.5C25 5.59 19.41 0 12.5 0z"/><circle cx="12.5" cy="12.5" r="4" fill="#fff"/></svg>',
+  )}`,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowUrl: iconShadow,
+  shadowSize: [41, 41],
+  shadowAnchor: [12, 41],
+});
 
 const PARSED_GAP = Number.parseInt(
   import.meta.env.VITE_NOMINATIM_GAP_MS || "1100",
@@ -191,14 +205,15 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
   );
 
   return (
-    <div className="relative w-full h-[calc(100vh-220px)] min-h-[480px] rounded-xl border border-yd-border overflow-hidden bg-yd-bg">
-      <MapContainer
-        center={BE_CENTER}
-        zoom={BE_ZOOM}
-        className="z-0 h-full w-full"
-        scrollWheelZoom
-        style={{ height: "100%", width: "100%" }}
-      >
+    <div className="relative w-full h-[calc(100vh-220px)] min-h-[480px] rounded-xl border border-yd-border bg-yd-bg">
+      <div className="h-full w-full overflow-hidden rounded-xl">
+        <MapContainer
+          center={BE_CENTER}
+          zoom={BE_ZOOM}
+          className="z-0 h-full w-full"
+          scrollWheelZoom
+          style={{ height: "100%", width: "100%" }}
+        >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -207,10 +222,12 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
         {items.map((prop) => {
           const c = coordsById[prop.id];
           if (!c || typeof c.lat !== "number") return null;
+          const isNieuw = isOnlineWithinLastDays(prop, 7);
           return (
             <Marker
               key={prop.id}
               position={[c.lat, c.lng]}
+              {...(isNieuw ? { icon: MAP_MARKER_ICON_RED } : {})}
               eventHandlers={{
                 mouseover: () => onMarkerOver(prop),
                 mouseout: scheduleClearHover,
@@ -218,7 +235,8 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
             />
           );
         })}
-      </MapContainer>
+        </MapContainer>
+      </div>
 
       {pendingGeocode.panden > 0 && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-[500] rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] text-yd-muted shadow border border-yd-border max-w-[min(100%,320px)]">
