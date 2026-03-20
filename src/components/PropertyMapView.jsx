@@ -9,7 +9,28 @@ import {
   readGeocodeCache,
   fetchGeocode,
   delay,
+  geocodeQueryKey,
+  mergeCoordsFromProps,
+  buildNominatimJobs,
 } from "../lib/nominatimGeocode.js";
+
+const PARSED_GAP = Number.parseInt(
+  import.meta.env.VITE_NOMINATIM_GAP_MS || "1100",
+  10,
+);
+const NOMINATIM_GAP_MS =
+  Number.isFinite(PARSED_GAP) && PARSED_GAP >= 0 ? PARSED_GAP : 1100;
+
+/** Apply the same geocode result to every id that is still unresolved. */
+function assignCoordsForIds(prev, ids, value) {
+  let next = null;
+  for (const id of ids) {
+    if (prev[id] !== undefined) continue;
+    if (!next) next = { ...prev };
+    next[id] = value;
+  }
+  return next || prev;
+}
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -20,7 +41,6 @@ L.Icon.Default.mergeOptions({
 
 const BE_CENTER = [50.9, 4.4];
 const BE_ZOOM = 8;
-const NOMINATIM_GAP_MS = 1100;
 
 function FitBounds({ pointsKey, points }) {
   const map = useMap();
@@ -49,6 +69,7 @@ function FitBounds({ pointsKey, points }) {
 export default function PropertyMapView({ items, renderPropertyCard }) {
   const [coordsById, setCoordsById] = useState({});
   const generationRef = useRef(0);
+  const nominatimPlanRef = useRef({ noAddressIds: [], groups: [] });
   const leaveTimerRef = useRef(null);
   const [hoverProp, setHoverProp] = useState(null);
 
@@ -66,33 +87,26 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
     const ac = new AbortController();
 
     setCoordsById((prev) => {
-      const allowed = new Set(list.map((p) => p.id));
-      const next = {};
-      for (const id of allowed) {
-        if (prev[id] !== undefined) next[id] = prev[id];
-      }
-      return next;
+      const merged = mergeCoordsFromProps(prev, list);
+      nominatimPlanRef.current = buildNominatimJobs(merged, list);
+      return merged;
     });
 
     (async () => {
+      const { noAddressIds, groups } = nominatimPlanRef.current;
+
+      if (noAddressIds.length) {
+        setCoordsById((prev) => assignCoordsForIds(prev, noAddressIds, false));
+      }
+
       let needDelayBeforeNextNetwork = false;
-      for (const prop of list) {
+      for (const { query, ids } of groups) {
         if (gen !== generationRef.current) return;
 
-        const id = prop.id;
-        const query = buildAddressQuery(prop);
-        if (!query) {
-          setCoordsById((prev) =>
-            prev[id] !== undefined ? prev : { ...prev, [id]: false },
-          );
-          continue;
-        }
-
+        const idList = [...ids];
         const cached = readGeocodeCache(query);
         if (cached !== undefined) {
-          setCoordsById((prev) =>
-            prev[id] !== undefined ? prev : { ...prev, [id]: cached || false },
-          );
+          setCoordsById((prev) => assignCoordsForIds(prev, idList, cached || false));
           continue;
         }
 
@@ -105,14 +119,10 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
         try {
           const res = await fetchGeocode(query, ac.signal);
           if (gen !== generationRef.current) return;
-          setCoordsById((prev) =>
-            prev[id] !== undefined ? prev : { ...prev, [id]: res || false },
-          );
+          setCoordsById((prev) => assignCoordsForIds(prev, idList, res || false));
         } catch {
           if (gen !== generationRef.current) return;
-          setCoordsById((prev) =>
-            prev[id] !== undefined ? prev : { ...prev, [id]: false },
-          );
+          setCoordsById((prev) => assignCoordsForIds(prev, idList, false));
         }
       }
     })();
@@ -140,12 +150,16 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
 
   const pendingGeocode = useMemo(() => {
     let n = 0;
+    const uniqueKeys = new Set();
     for (const p of items) {
       const q = buildAddressQuery(p);
       if (!q) continue;
-      if (coordsById[p.id] === undefined) n += 1;
+      if (coordsById[p.id] === undefined) {
+        n += 1;
+        uniqueKeys.add(geocodeQueryKey(q));
+      }
     }
-    return n;
+    return { panden: n, uniekeAdressen: uniqueKeys.size };
   }, [items, coordsById]);
 
   const failedGeocode = useMemo(() => {
@@ -206,12 +220,16 @@ export default function PropertyMapView({ items, renderPropertyCard }) {
         })}
       </MapContainer>
 
-      {pendingGeocode > 0 && (
-        <div className="pointer-events-none absolute bottom-3 left-3 z-[500] rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] text-yd-muted shadow border border-yd-border max-w-[min(100%,280px)]">
-          Adressen op de kaart plaatsen… ({pendingGeocode} bezig)
+      {pendingGeocode.panden > 0 && (
+        <div className="pointer-events-none absolute bottom-3 left-3 z-[500] rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] text-yd-muted shadow border border-yd-border max-w-[min(100%,320px)]">
+          Adressen op de kaart plaatsen… ({pendingGeocode.panden} panden
+          {pendingGeocode.uniekeAdressen !== pendingGeocode.panden
+            ? ` · ${pendingGeocode.uniekeAdressen} unieke adressen`
+            : ""}
+          )
         </div>
       )}
-      {failedGeocode > 0 && pendingGeocode === 0 && (
+      {failedGeocode > 0 && pendingGeocode.panden === 0 && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-[500] rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900 shadow border border-amber-200 max-w-[min(100%,280px)]">
           {failedGeocode} adres(sen) niet gevonden op de kaart.
         </div>

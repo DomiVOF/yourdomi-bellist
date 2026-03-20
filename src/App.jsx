@@ -1,5 +1,5 @@
 // YourDomi Bellijst v2.2 — redesign: Tailwind + Nunito + lucide-react
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, TrendingUp, ChevronLeft, ChevronRight } from "lucide-react";
 import PropertyMapView from "./components/PropertyMapView.jsx";
 
@@ -58,6 +58,7 @@ async function fetchLodgings(page = 1, pageSize = 50, filters = {}, sorteer = "s
   if (filters.belstatus)    params.set("belstatus", filters.belstatus);
   if (filters.regio)        params.set("regio", filters.regio);
   if (filters.type)         params.set("type", filters.type);
+  if (filters.onlineSindsVanaf) params.set("onlineSindsVanaf", filters.onlineSindsVanaf);
   if (sorteer && sorteer !== "score") params.set("sorteer", sorteer);
 
   const r = await fetch(`${API_URL}/api/panden?${params}`, {
@@ -360,6 +361,14 @@ function parseLodging(item, included = []) {
 
   const name = str(a["name"]) || str(a["alternative-name"]) || str(a["schema:name"]) || "";
 
+  const rawLat =
+    a.latitude ?? a.lat ?? a["latitude"] ?? a.geo_lat ?? a["geo-lat"] ?? a.Latitude;
+  const rawLng =
+    a.longitude ?? a.lng ?? a.lon ?? a["longitude"] ?? a.geo_lng ?? a["geo-lng"] ?? a.Longitude;
+  const pLat = typeof rawLat === "number" ? rawLat : parseFloat(rawLat);
+  const pLng = typeof rawLng === "number" ? rawLng : parseFloat(rawLng);
+  const hasApiCoords = Number.isFinite(pLat) && Number.isFinite(pLng);
+
   return {
     id: raw.id || item.id,
     name: name || str(a["alternative-name"]) || str(a["registratienummer"]) || "Naamloze woning",
@@ -384,7 +393,74 @@ function parseLodging(item, included = []) {
     toeristischeRegio: "",
     type: "",
     rawUrl: `https://linked.toerismevlaanderen.be/id/lodgings/${raw.id || item.id}`,
+    ...(hasApiCoords ? { lat: pLat, lng: pLng } : {}),
   };
+}
+
+/** Calendar year from TV-style date fields (ISO, d/m/y, or any 19xx/20xx in string). */
+function parseOnlineYear(p) {
+  const raw = String(p?.onlineSince || p?.dateOnline || "").trim();
+  if (!raw) return null;
+  if (/^\d{4}/.test(raw)) {
+    const y = parseInt(raw.slice(0, 4), 10);
+    if (y >= 1900 && y <= 2100) return y;
+  }
+  const dmy = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b/);
+  if (dmy) {
+    const y = parseInt(dmy[3], 10);
+    if (y >= 1900 && y <= 2100) return y;
+  }
+  const m = raw.match(/\b(19|20)\d{2}\b/);
+  if (m) return parseInt(m[0], 10);
+  return null;
+}
+
+/** Maand + jaar (nl-BE) voor op kaarten; alleen jaar als er geen maand bekend is. */
+function formatOnlineSindsMaandJaar(p) {
+  const raw = String(p?.onlineSince || p?.dateOnline || "").trim();
+  if (!raw) return null;
+
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const d = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+    if (Number.isFinite(d.getTime())) {
+      return d.toLocaleDateString("nl-BE", { month: "short", year: "numeric" });
+    }
+  }
+
+  const dmy = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b/);
+  if (dmy) {
+    const d = new Date(parseInt(dmy[3], 10), parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+    if (Number.isFinite(d.getTime())) {
+      return d.toLocaleDateString("nl-BE", { month: "short", year: "numeric" });
+    }
+  }
+
+  const ym = raw.match(/^(\d{4})-(\d{2})(?:$|[^\d])/);
+  if (ym) {
+    const d = new Date(parseInt(ym[1], 10), parseInt(ym[2], 10) - 1, 1);
+    if (Number.isFinite(d.getTime())) {
+      return d.toLocaleDateString("nl-BE", { month: "short", year: "numeric" });
+    }
+  }
+
+  if (/^\d{4}$/.test(raw)) {
+    const y = parseInt(raw, 10);
+    if (y >= 1900 && y <= 2100) return String(y);
+  }
+
+  const y = parseOnlineYear(p);
+  return y != null ? String(y) : null;
+}
+
+function passesOnlineYearFilter(p, f) {
+  const y = parseOnlineYear(p);
+  if (!f.onlineSindsVanaf) return true;
+  const minY = parseInt(f.onlineSindsVanaf, 10);
+  if (!Number.isFinite(minY)) return true;
+  const huidigJaar = new Date().getFullYear();
+  if (y == null || y < minY || y > huidigJaar) return false;
+  return true;
 }
 
 // --- INSTANT ZOEKLINKS (geen AI nodig) --------------------------------------
@@ -1282,6 +1358,7 @@ function PropertyCard({
     isLikelyAgency(prop, fullAi || null) ||
     (prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) >= 4);
   const poorWebsite = fullAi?.directWebsite?.poorlyBuilt;
+  const onlineSindsTekst = formatOnlineSindsMaandJaar(prop);
 
   return (
     <div
@@ -1310,6 +1387,12 @@ function PropertyCard({
 
         {/* SECOND ROW: full address */}
         <div className="text-sm text-[#888888] mt-1 truncate">{fullAddress || "—"}</div>
+        {onlineSindsTekst && (
+          <div className="text-xs text-[#888888] mt-1.5 flex items-center gap-1.5 min-w-0">
+            <Calendar className="w-3.5 h-3.5 flex-shrink-0 opacity-85" aria-hidden />
+            <span className="truncate">Online sinds {onlineSindsTekst}</span>
+          </div>
+        )}
 
         <div className="border-t border-[#EBEBEB] my-3" />
 
@@ -1532,6 +1615,7 @@ export default function App() {
     belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
     regio: "",
     type: "",
+    onlineSindsVanaf: "", // jaar: vanaf (inclusief) t/m huidig jaar; leeg = geen filter
     toonVerborgen: false,
     toonAfgewezen: true,
     toonInteresse: true,
@@ -1546,6 +1630,16 @@ export default function App() {
   const [meta, setMeta] = useState({ provinces: [], types: [], regios: [] });
   const [cardThumbErrors, setCardThumbErrors] = useState({}); // id -> true when thumb image failed to load
   const [dbEnrichmentCount, setDbEnrichmentCount] = useState(null); // total full enrichments in DB (server-wide)
+
+  const onlineJaarFilterOpties = useMemo(() => {
+    const cy = new Date().getFullYear();
+    const pairs = [["", "Alle jaren"]];
+    for (let y = cy; y >= 1990; y--) {
+      const s = String(y);
+      pairs.push([s, s]);
+    }
+    return pairs;
+  }, []);
 
   const loadHealth = useCallback(async () => {
     if (!USE_SERVER) return;
@@ -1849,6 +1943,7 @@ export default function App() {
   // Gefilterde + gesorteerde lijst
   let zichtbaar = properties.filter(p => {
     // Local-only filters (not sent to server)
+    if (!passesOnlineYearFilter(p, filters)) return false;
     const outcome = outcomes[p.id];
     if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
@@ -1898,6 +1993,7 @@ export default function App() {
   });
 
   const isVisible = (p) => {
+    if (!passesOnlineYearFilter(p, filters)) return false;
     const outcome = outcomes[p.id];
     if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
     if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
@@ -2259,6 +2355,8 @@ export default function App() {
                 <label className="text-[10px] uppercase tracking-wider text-yd-muted font-semibold">Max. slaapplaatsen</label>
                 <input className="bg-white border border-yd-border rounded-btn py-1.5 px-2.5 text-xs text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30" type="number" placeholder="inf" value={rawFilters.maxSlaap} onChange={e => setRawFilters(f => ({ ...f, maxSlaap: e.target.value }))} />
               </div>
+              <FilterSelect label="Online sinds (vanaf jaar t/m nu)" value={rawFilters.onlineSindsVanaf} onChange={v => setRawFilters(f => ({ ...f, onlineSindsVanaf: v }))}
+                options={onlineJaarFilterOpties} />
             </div>
 
             <div className="pt-2.5 mt-1 border-t border-yd-border">
