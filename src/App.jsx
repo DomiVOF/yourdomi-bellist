@@ -53,6 +53,29 @@ const LODGINGS_PAGE_SIZE = 100;
 /** Zelfde waarde als Tailwind `gap-4` — horizontaal in de rij + verticaal tussen virtualizer-rijen. */
 const CARD_GRID_GAP_PX = 16;
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Backoff bij 429/503 (proxy/Railway rate limits). 401 direct doorgeven. */
+async function fetchWithBackoff(url, init = {}, { maxAttempts = 5 } = {}) {
+  let lastResponse;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    lastResponse = await fetch(url, init);
+    if (lastResponse.status === 401) return lastResponse;
+    if (lastResponse.status !== 429 && lastResponse.status !== 503) return lastResponse;
+    if (attempt >= maxAttempts - 1) return lastResponse;
+    let waitMs = 400 * 2 ** attempt;
+    const ra = lastResponse.headers.get("Retry-After");
+    if (ra != null && /^\d+$/.test(String(ra).trim())) {
+      const sec = parseInt(String(ra).trim(), 10);
+      if (Number.isFinite(sec)) waitMs = Math.min(60_000, Math.max(waitMs, sec * 1000));
+    }
+    await delay(waitMs);
+  }
+  return lastResponse;
+}
+
 async function fetchLodgings(page = 1, pageSize = LODGINGS_PAGE_SIZE, filters = {}, sorteer = "platform") {
   const params = new URLSearchParams({ page, size: pageSize });
   if (filters.zoek)         params.set("zoek", filters.zoek);
@@ -73,16 +96,19 @@ async function fetchLodgings(page = 1, pageSize = LODGINGS_PAGE_SIZE, filters = 
   // "platform" = client-side sort alleen; geen server-param
   if (sorteer && sorteer !== "platform") params.set("sorteer", sorteer);
 
-  const r = await fetch(`${API_URL}/api/panden?${params}`, {
+  const r = await fetchWithBackoff(`${API_URL}/api/panden?${params}`, {
     headers: getHeaders(),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(20000),
   });
   if (r.status === 401) {
     localStorage.removeItem("yd_token");
     localStorage.removeItem("yd_user");
     throw new Error("401");
   }
-  if (!r.ok) throw new Error(`Server error ${r.status}`);
+  if (!r.ok) {
+    if (r.status === 429) throw new Error("Te veel verzoeken (429). Wacht even en tik Opnieuw.");
+    throw new Error(`Server error ${r.status}`);
+  }
   return r.json();
 }
 
@@ -165,7 +191,7 @@ async function saveEnrichment(id, data) {
 async function loadAllEnrichments() {
   if (!USE_SERVER) return null;
   try {
-    const r = await fetch(`${API_URL}/api/enrichment`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+    const r = await fetchWithBackoff(`${API_URL}/api/enrichment`, { headers: getHeaders(), signal: AbortSignal.timeout(12000) });
     if (r.ok) return await r.json();
   } catch (e) { console.warn("Failed to load enrichments from server:", e.message); }
   return null;
@@ -175,7 +201,7 @@ async function loadAllEnrichments() {
 async function loadPlatformScan() {
   if (!USE_SERVER) return null;
   try {
-    const r = await fetch(`${API_URL}/api/platform-scan`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+    const r = await fetchWithBackoff(`${API_URL}/api/platform-scan`, { headers: getHeaders(), signal: AbortSignal.timeout(12000) });
     if (r.ok) return await r.json();
   } catch (e) { console.warn("Failed to load platform scan:", e.message); }
   return null;
@@ -185,7 +211,7 @@ async function loadPlatformScan() {
 async function loadAllOutcomes() {
   if (!USE_SERVER) return null;
   try {
-    const r = await fetch(`${API_URL}/api/outcomes`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+    const r = await fetchWithBackoff(`${API_URL}/api/outcomes`, { headers: getHeaders(), signal: AbortSignal.timeout(12000) });
     if (r.ok) return await r.json();
   } catch (e) {
     console.warn("Failed to load outcomes from server:", e.message);
@@ -1774,7 +1800,7 @@ export default function App() {
   const loadHealth = useCallback(async () => {
     if (!USE_SERVER) return;
     try {
-      const r = await fetch(`${API_URL}/api/health`, { headers: getHeaders(), signal: AbortSignal.timeout(8000) });
+      const r = await fetchWithBackoff(`${API_URL}/api/health`, { headers: getHeaders(), signal: AbortSignal.timeout(12000) });
       if (!r.ok) return;
       const j = await r.json();
       const c = Number(j?.enrichments);
@@ -1892,7 +1918,7 @@ export default function App() {
     }
     if (toEnrich.length === 0) return;
 
-    const PARALLEL = 5; // parallelle verzoeken; pas aan bij rate limits
+    const PARALLEL = 3; // lager bij strikte API rate limits (was 5)
     let idx = 0;
 
     const volgende = async () => {
@@ -1935,48 +1961,78 @@ export default function App() {
   }, [loadHealth]);
 
   useEffect(() => {
-    // Load meta (provinces, types, regios) from server
-    if (USE_SERVER) {
-      fetch(`${API_URL}/api/meta`, { headers: getHeaders() }).then(r => {
-        if (!r.ok) return;
-        return r.json();
-      }).then(m => {
-        if (m && (m.provinces || m.regios)) setMeta(m);
-      }).catch(() => {});
-    }
-    // Load enrichments from server first (overrides localStorage)
-    if (USE_SERVER) {
-      loadAllEnrichments().then(serverData => {
-        if (serverData && Object.keys(serverData).length > 0) {
-          setEnriched(serverData);
-          save("enriched", serverData);
-          setProperties(prev => filterToBellijstPanden(prev, serverData));
-        }
-      }).catch(() => {});
-      loadPlatformScan().then(scanData => {
-        if (scanData && typeof scanData === "object") setPlatformScan(scanData);
-      }).catch(() => {});
-      loadAllOutcomes().then(serverOutcomes => {
-        if (serverOutcomes && typeof serverOutcomes === "object") {
-          const outMap = {};
-          const notesMap = { ...load("notes", {}) };
-          const contactMap = { ...load("contactnamen", {}) };
-          for (const [id, row] of Object.entries(serverOutcomes)) {
-            if (row.outcome) outMap[id] = row.outcome;
-            if (row.note) notesMap[id] = row.note;
-            if (row.contactNaam) contactMap[id] = row.contactNaam;
-          }
-          setOutcomes(outMap);
-          setNotes(notesMap);
-          setContactNamen(contactMap);
-          save("outcomes", outMap);
-          save("notes", notesMap);
-          save("contactnamen", contactMap);
-        }
-      }).catch(() => {});
-      loadHealth().catch(() => {});
-    }
+    let cancelled = false;
+    const staggerMs = 180;
+    const pause = async () => {
+      await delay(staggerMs);
+      return cancelled;
+    };
+
     laadPanden(1);
+
+    if (USE_SERVER) {
+      void (async () => {
+        if (await pause()) return;
+        try {
+          const r = await fetchWithBackoff(`${API_URL}/api/meta`, {
+            headers: getHeaders(),
+            signal: AbortSignal.timeout(12000),
+          });
+          if (cancelled) return;
+          if (r.ok) {
+            const m = await r.json();
+            if (m && (m.provinces || m.regios)) setMeta(m);
+          }
+        } catch (_) {}
+
+        if (await pause()) return;
+        try {
+          const serverData = await loadAllEnrichments();
+          if (cancelled) return;
+          if (serverData && Object.keys(serverData).length > 0) {
+            setEnriched(serverData);
+            save("enriched", serverData);
+            setProperties(prev => filterToBellijstPanden(prev, serverData));
+          }
+        } catch (_) {}
+
+        if (await pause()) return;
+        try {
+          const scanData = await loadPlatformScan();
+          if (cancelled) return;
+          if (scanData && typeof scanData === "object") setPlatformScan(scanData);
+        } catch (_) {}
+
+        if (await pause()) return;
+        try {
+          const serverOutcomes = await loadAllOutcomes();
+          if (cancelled) return;
+          if (serverOutcomes && typeof serverOutcomes === "object") {
+            const outMap = {};
+            const notesMap = { ...load("notes", {}) };
+            const contactMap = { ...load("contactnamen", {}) };
+            for (const [id, row] of Object.entries(serverOutcomes)) {
+              if (row.outcome) outMap[id] = row.outcome;
+              if (row.note) notesMap[id] = row.note;
+              if (row.contactNaam) contactMap[id] = row.contactNaam;
+            }
+            setOutcomes(outMap);
+            setNotes(notesMap);
+            setContactNamen(contactMap);
+            save("outcomes", outMap);
+            save("notes", notesMap);
+            save("contactnamen", contactMap);
+          }
+        } catch (_) {}
+
+        if (await pause()) return;
+        await loadHealth();
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [laadPanden, loadHealth]);
 
   // Verberg pand + alle panden met zelfde telefoon/email als afgewezen
@@ -2186,19 +2242,26 @@ export default function App() {
   const cardGridContainerRef = useRef(null);
   const [cardGridCols, setCardGridCols] = useState(1);
   useLayoutEffect(() => {
-    if (displayMode !== "cards") return undefined;
+    // `view` moet in deps: bij terugkomst uit dossier remount de grid — zonder opnieuw te meten
+    // blijft cardGridCols op 1 en blijft de virtualizer oude rijhoogtes cachen → enorme kaarten.
+    if (displayMode !== "cards" || view !== "lijst") return undefined;
     const el = cardGridContainerRef.current;
     if (!el) return undefined;
-    const measure = () => {
+    const measureCols = () => {
       const w = el.clientWidth || 0;
+      if (w <= 0) return;
       const minW = 320;
       setCardGridCols(Math.max(1, Math.floor((w + CARD_GRID_GAP_PX) / (minW + CARD_GRID_GAP_PX))));
     };
-    measure();
-    const ro = new ResizeObserver(measure);
+    measureCols();
+    const ro = new ResizeObserver(measureCols);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [displayMode]);
+    const t = window.setTimeout(measureCols, 0);
+    return () => {
+      clearTimeout(t);
+      ro.disconnect();
+    };
+  }, [displayMode, view]);
 
   const cardRowCount = displayMode === "cards" ? Math.ceil(zichtbaar.length / Math.max(1, cardGridCols)) : 0;
   const cardRowVirtualizer = useWindowVirtualizer({
@@ -2208,6 +2271,11 @@ export default function App() {
     estimateSize: () => 440,
     overscan: 4,
   });
+
+  useLayoutEffect(() => {
+    if (displayMode !== "cards" || view !== "lijst") return;
+    cardRowVirtualizer.measure();
+  }, [displayMode, view, cardGridCols, cardRowVirtualizer]);
 
   const uniekeProvincies = [...new Set(properties.map(p => p.province).filter(Boolean))].sort();
 
