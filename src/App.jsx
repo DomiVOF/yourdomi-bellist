@@ -50,6 +50,9 @@ function postHeaders() { return { "Content-Type": "application/json", "x-auth-to
 /** Panden per API-pagina (`size` query param); ook gebruikt voor fill/paginering in de UI. */
 const LODGINGS_PAGE_SIZE = 100;
 
+/** Zelfde waarde als Tailwind `gap-4` — horizontaal in de rij + verticaal tussen virtualizer-rijen. */
+const CARD_GRID_GAP_PX = 16;
+
 async function fetchLodgings(page = 1, pageSize = LODGINGS_PAGE_SIZE, filters = {}, sorteer = "platform") {
   const params = new URLSearchParams({ page, size: pageSize });
   if (filters.zoek)         params.set("zoek", filters.zoek);
@@ -66,6 +69,7 @@ async function fetchLodgings(page = 1, pageSize = LODGINGS_PAGE_SIZE, filters = 
   if (filters.regio)        params.set("regio", filters.regio);
   if (filters.type)         params.set("type", filters.type);
   if (filters.onlineSindsVanaf) params.set("onlineSindsVanaf", filters.onlineSindsVanaf);
+  if (filters.onlineSindsTot) params.set("onlineSindsTot", filters.onlineSindsTot);
   // "platform" = client-side sort alleen; geen server-param
   if (sorteer && sorteer !== "platform") params.set("sorteer", sorteer);
 
@@ -463,11 +467,19 @@ function formatOnlineSindsMaandJaar(p) {
 
 function passesOnlineYearFilter(p, f) {
   const y = parseOnlineYear(p);
-  if (!f.onlineSindsVanaf) return true;
-  const minY = parseInt(f.onlineSindsVanaf, 10);
-  if (!Number.isFinite(minY)) return true;
   const huidigJaar = new Date().getFullYear();
-  if (y == null || y < minY || y > huidigJaar) return false;
+  const hasMin = !!(f.onlineSindsVanaf && String(f.onlineSindsVanaf).trim());
+  const hasMax = !!(f.onlineSindsTot && String(f.onlineSindsTot).trim());
+  if (!hasMin && !hasMax) return true;
+  if (y == null) return false;
+  if (hasMin) {
+    const minY = parseInt(f.onlineSindsVanaf, 10);
+    if (Number.isFinite(minY) && (y < minY || y > huidigJaar)) return false;
+  }
+  if (hasMax) {
+    const maxY = parseInt(f.onlineSindsTot, 10);
+    if (Number.isFinite(maxY) && y > maxY) return false;
+  }
   return true;
 }
 
@@ -1403,6 +1415,8 @@ const PropertyCard = React.memo(function PropertyCard({
   phoneGroups,
   animationStyle,
   staggerDelaySec,
+  /** Kaarten-grid: gelijke hoogte per rij, knoppen onderaan */
+  fillRowHeight = false,
 }) {
   const handleCardActivate = useCallback(() => {
     if (openDossierById) openDossierById(prop.id);
@@ -1457,7 +1471,7 @@ const PropertyCard = React.memo(function PropertyCard({
 
   return (
     <div
-      className={`relative rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
+      className={`relative rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${fillRowHeight ? "h-full min-h-0 w-full" : ""} ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
       style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)", ...motionStyle }}
     >
       {isNieuw && (
@@ -1471,7 +1485,7 @@ const PropertyCard = React.memo(function PropertyCard({
       <div
         role="button"
         tabIndex={0}
-        className={`p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito ${isNieuw ? "pt-11" : ""}`}
+        className={`p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito min-h-0 ${fillRowHeight ? "overflow-y-auto" : ""} ${isNieuw ? "pt-11" : ""}`}
         onKeyDown={handleKeyDown}
         onClick={handleCardActivate}
       >
@@ -1537,7 +1551,7 @@ const PropertyCard = React.memo(function PropertyCard({
       </div>
 
       {/* BOTTOM ACTION ROW (buttons don't navigate) */}
-      <div className="px-[20px] pb-5 pt-0 flex gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
+      <div className={`px-[20px] pb-5 pt-0 flex gap-2 flex-wrap flex-shrink-0 bg-white ${fillRowHeight ? "mt-auto" : ""}`} onClick={e => e.stopPropagation()}>
         <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleAfwijzen}>Afwijzen</button>
         <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleTerugbellen}>Terugbellen</button>
         <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "gebeld_interesse" ? "bg-[#22C55E] text-[#1A1A1A] border-[#22C55E] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleInteresse}>✓ Interesse</button>
@@ -1709,7 +1723,8 @@ export default function App() {
     belstatus: "",   // "" | "terugbellen" | "interesse" | "afgewezen"
     regio: "",
     type: "",
-    onlineSindsVanaf: "", // jaar: vanaf (inclusief) t/m huidig jaar; leeg = geen filter
+    onlineSindsVanaf: "", // jaar: vanaf (inclusief) t/m huidig jaar; leeg = geen ondergrens
+    onlineSindsTot: "", // jaar: tot en met (inclusief); leeg = geen bovengrens
     toonVerborgen: false,
     toonAfgewezen: true,
     toonInteresse: true,
@@ -1742,6 +1757,16 @@ export default function App() {
     for (let y = cy; y >= 1990; y--) {
       const s = String(y);
       pairs.push([s, s]);
+    }
+    return pairs;
+  }, []);
+
+  const onlineJaarTotFilterOpties = useMemo(() => {
+    const cy = new Date().getFullYear();
+    const pairs = [["", "Geen bovengrens"]];
+    for (let y = cy; y >= 1990; y--) {
+      const s = String(y);
+      pairs.push([s, `Tot en met ${s}`]);
     }
     return pairs;
   }, []);
@@ -1825,12 +1850,6 @@ export default function App() {
     setRawFilters(nextFilters);
     setFilters(nextFilters);
     laadPanden(1, nextFilters, myToken);
-    // Safety re-sync: ensures one-click filtering even if a concurrent fetch/update raced.
-    setTimeout(() => {
-      if (fetchTokenRef.current === myToken) {
-        laadPanden(1, nextFilters, myToken);
-      }
-    }, 180);
     setAiGestart(false);
   };
 
@@ -2136,6 +2155,7 @@ export default function App() {
       let nextPage = lastPageLoadedRef.current + 1;
       while (visibleCount < LODGINGS_PAGE_SIZE && merged.length < totalCount) {
         const data = await fetchLodgings(nextPage, LODGINGS_PAGE_SIZE, currentFilters, currentSorteer);
+        if (myToken !== fetchTokenRef.current) return;
         const rawList = lodgingRowsFromApiPayload(data);
         if (!rawList.length) break;
         const parsed = rawList.map(item => parseLodging(item));
@@ -2153,9 +2173,7 @@ export default function App() {
     } catch (e) {
       console.error("fillPage error", e);
     } finally {
-      if (myToken === fetchTokenRef.current) {
-        fillingRef.current = false;
-      }
+      fillingRef.current = false;
     }
   }, [loading, totalCount, properties]);
 
@@ -2173,9 +2191,8 @@ export default function App() {
     if (!el) return undefined;
     const measure = () => {
       const w = el.clientWidth || 0;
-      const gap = 16;
       const minW = 320;
-      setCardGridCols(Math.max(1, Math.floor((w + gap) / (minW + gap))));
+      setCardGridCols(Math.max(1, Math.floor((w + CARD_GRID_GAP_PX) / (minW + CARD_GRID_GAP_PX))));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -2186,6 +2203,8 @@ export default function App() {
   const cardRowCount = displayMode === "cards" ? Math.ceil(zichtbaar.length / Math.max(1, cardGridCols)) : 0;
   const cardRowVirtualizer = useWindowVirtualizer({
     count: cardRowCount,
+    gap: CARD_GRID_GAP_PX,
+    // Startwaarde; echte rijhoogte komt uit measureElement op de rij-div (geen vaste 560px meer).
     estimateSize: () => 440,
     overscan: 4,
   });
@@ -2449,6 +2468,8 @@ export default function App() {
               </div>
               <FilterSelect label="Online sinds (vanaf jaar t/m nu)" value={rawFilters.onlineSindsVanaf} onChange={v => setRawFilters(f => ({ ...f, onlineSindsVanaf: v }))}
                 options={onlineJaarFilterOpties} />
+              <FilterSelect label="Online tot en met (jaar)" value={rawFilters.onlineSindsTot} onChange={v => setRawFilters(f => ({ ...f, onlineSindsTot: v }))}
+                options={onlineJaarTotFilterOpties} />
             </div>
 
             <div className="pt-2.5 mt-1 border-t border-yd-border">
@@ -2673,12 +2694,13 @@ export default function App() {
               return (
                 <div
                   key={vRow.key}
-                  className="absolute left-0 right-0 grid gap-4"
+                  data-index={vRow.index}
+                  ref={cardRowVirtualizer.measureElement}
+                  className="absolute left-0 right-0 top-0 grid items-stretch min-h-0"
                   style={{
                     gridTemplateColumns: `repeat(${cardGridCols}, minmax(0, 1fr))`,
+                    gap: CARD_GRID_GAP_PX,
                     transform: `translateY(${vRow.start}px)`,
-                    height: `${vRow.size}px`,
-                    top: 0,
                   }}
                 >
                   {slice.map((prop, j) => {
@@ -2690,25 +2712,27 @@ export default function App() {
                     const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
                     const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
                     return (
-                      <PropertyCard
-                        key={prop.id}
-                        prop={prop}
-                        fullAi={fullAi}
-                        ai={ai}
-                        outcome={uitkomst}
-                        enriching={enrichingIds.has(prop.id)}
-                        isVerborgen={isVerborgen}
-                        heeftPortfolio={heeftPortfolio}
-                        portfolioAantal={portfolioAantal}
-                        uitkomstLabel={uitkomstLabel}
-                        openDossierById={openDossierById}
-                        onCardClick={() => {}}
-                        onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
-                        onOutcome={v => slaUitkomstOp(prop.id, v)}
-                        phoneGroups={phoneGroups}
-                        onInteresseClick={openInteressePopup}
-                        staggerDelaySec={idx * 0.03}
-                      />
+                      <div key={prop.id} className="min-w-0 min-h-0 h-full flex flex-col">
+                        <PropertyCard
+                          fillRowHeight
+                          prop={prop}
+                          fullAi={fullAi}
+                          ai={ai}
+                          outcome={uitkomst}
+                          enriching={enrichingIds.has(prop.id)}
+                          isVerborgen={isVerborgen}
+                          heeftPortfolio={heeftPortfolio}
+                          portfolioAantal={portfolioAantal}
+                          uitkomstLabel={uitkomstLabel}
+                          openDossierById={openDossierById}
+                          onCardClick={() => {}}
+                          onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
+                          onOutcome={v => slaUitkomstOp(prop.id, v)}
+                          phoneGroups={phoneGroups}
+                          onInteresseClick={openInteressePopup}
+                          staggerDelaySec={idx * 0.03}
+                        />
+                      </div>
                     );
                   })}
                 </div>
