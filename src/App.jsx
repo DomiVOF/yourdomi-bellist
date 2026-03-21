@@ -1,8 +1,10 @@
 // YourDomi Bellijst v2.2 — redesign: Tailwind + Nunito + lucide-react
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
 import { MapPin, Calendar, Building2, Bed, Phone, Mail, Globe, ChevronDown, Settings, LogOut, Home, AlertCircle, Check, Minus, ChevronLeft, ChevronRight } from "lucide-react";
-import PropertyMapView from "./components/PropertyMapView.jsx";
 import { isOnlineWithinLastDays } from "./lib/listingNew.js";
+
+const PropertyMapView = lazy(() => import("./components/PropertyMapView.jsx"));
 
 // --- DESIGN TOKENS (light, gold-accent theme) --------------------------------
 const T = {
@@ -467,6 +469,52 @@ function passesOnlineYearFilter(p, f) {
   const huidigJaar = new Date().getFullYear();
   if (y == null || y < minY || y > huidigJaar) return false;
   return true;
+}
+
+/** Enrichment + platform scan + website URL hints (voor kaarten, sortering, tabel). */
+function mergeCardAiForProperty(id, property, enriched, platformScan) {
+  const en = enriched[id];
+  const scan = platformScan[id];
+  let ai = null;
+  if (en) {
+    ai = {
+      ...en,
+      airbnb: en.airbnb?.gevonden ? en.airbnb : (scan?.airbnb?.gevonden ? scan.airbnb : { gevonden: false }),
+      booking: en.booking?.gevonden ? en.booking : (scan?.booking?.gevonden ? scan.booking : { gevonden: false }),
+    };
+  } else if (scan) {
+    ai = {
+      airbnb: scan.airbnb || { gevonden: false },
+      booking: scan.booking || { gevonden: false },
+      directWebsite: scan.website ? { gevonden: scan.website.gevonden, url: scan.website.url } : {},
+    };
+  }
+  if (property?.website && typeof property.website === "string") {
+    const w = property.website.toLowerCase();
+    if (w.includes("airbnb.com") && !ai?.airbnb?.gevonden) ai = { ...(ai || {}), airbnb: { gevonden: true, url: property.website } };
+    if (w.includes("booking.com") && !ai?.booking?.gevonden) ai = { ...(ai || {}), booking: { gevonden: true, url: property.website } };
+  }
+  return ai;
+}
+
+/** Eén pass: alle client-side filters (zonder dubbele filter-loops). */
+function rowPassesClientFilters(p, filters, outcomes, hidden, enriched, platformScan) {
+  if (!passesOnlineYearFilter(p, filters)) return false;
+  const outcome = outcomes[p.id];
+  if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
+  if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
+  if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
+  if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
+  if (filters.heeftAi && !enriched[p.id]) return false;
+  if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
+  if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
+  if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
+  return true;
+}
+
+function hasPlatformListingForSort(p, enriched, platformScan) {
+  const ai = mergeCardAiForProperty(p.id, p, enriched, platformScan);
+  return !!(ai?.airbnb?.gevonden || ai?.booking?.gevonden);
 }
 
 // --- INSTANT ZOEKLINKS (geen AI nodig) --------------------------------------
@@ -1334,8 +1382,10 @@ function getCardAiSignal(fullAi, ai) {
   return null;
 }
 
+const EMPTY_ANIM_STYLE = {};
+
 // --- PROPERTY CARD (dense layout for cold callers) -----------------------------
-function PropertyCard({
+const PropertyCard = React.memo(function PropertyCard({
   prop,
   fullAi,
   ai,
@@ -1346,12 +1396,38 @@ function PropertyCard({
   portfolioAantal,
   uitkomstLabel,
   onCardClick,
+  openDossierById,
   onAfgewezen,
   onOutcome,
   onInteresseClick,
   phoneGroups,
   animationStyle,
+  staggerDelaySec,
 }) {
+  const handleCardActivate = useCallback(() => {
+    if (openDossierById) openDossierById(prop.id);
+    else onCardClick();
+  }, [openDossierById, onCardClick, prop.id]);
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleCardActivate();
+    }
+  }, [handleCardActivate]);
+  const handleAfwijzen = useCallback((e) => {
+    e.stopPropagation();
+    onAfgewezen();
+  }, [onAfgewezen]);
+  const handleTerugbellen = useCallback((e) => {
+    e.stopPropagation();
+    onOutcome(outcome === "callback" ? null : "callback");
+  }, [onOutcome, outcome]);
+  const handleInteresse = useCallback((e) => {
+    e.stopPropagation();
+    const isInteresse = outcome === "gebeld_interesse";
+    onOutcome(isInteresse ? null : "gebeld_interesse");
+    if (!isInteresse && onInteresseClick) onInteresseClick(prop);
+  }, [onOutcome, onInteresseClick, outcome, prop]);
   const street = prop.street || prop["address-street"] || prop.straat || "";
   const city = prop.municipality || prop["municipality-name"] || prop.gemeente || "";
   const postalCode = prop.postalCode || prop["postal-code"] || "";
@@ -1375,10 +1451,14 @@ function PropertyCard({
   const onlineSindsTekst = formatOnlineSindsMaandJaar(prop);
   const isNieuw = isOnlineWithinLastDays(prop, 7);
 
+  const motionStyle = staggerDelaySec != null
+    ? { animation: `fadeUp 0.3s ease ${staggerDelaySec}s both` }
+    : (animationStyle || EMPTY_ANIM_STYLE);
+
   return (
     <div
       className={`relative rounded-[16px] bg-white border border-[#EBEBEB] overflow-hidden flex flex-col transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.1)] font-nunito ${isVerborgen || outcome === "afgewezen" ? "opacity-45" : "opacity-100"}`}
-      style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)", ...animationStyle }}
+      style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.06)", ...motionStyle }}
     >
       {isNieuw && (
         <span
@@ -1392,8 +1472,8 @@ function PropertyCard({
         role="button"
         tabIndex={0}
         className={`p-[20px] flex flex-col gap-0 cursor-pointer flex-1 font-nunito ${isNieuw ? "pt-11" : ""}`}
-        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCardClick(); } }}
-        onClick={onCardClick}
+        onKeyDown={handleKeyDown}
+        onClick={handleCardActivate}
       >
         {/* TOP ROW: naam */}
         <div className={`flex justify-between items-start gap-3 ${isNieuw ? "pr-[4.25rem]" : ""}`}>
@@ -1458,13 +1538,13 @@ function PropertyCard({
 
       {/* BOTTOM ACTION ROW (buttons don't navigate) */}
       <div className="px-[20px] pb-5 pt-0 flex gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
-        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); onAfgewezen(); }}>Afwijzen</button>
-        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); onOutcome(outcome === "callback" ? null : "callback"); }}>Terugbellen</button>
-        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "gebeld_interesse" ? "bg-[#22C55E] text-[#1A1A1A] border-[#22C55E] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={e => { e.stopPropagation(); const isInteresse = outcome === "gebeld_interesse"; onOutcome(isInteresse ? null : "gebeld_interesse"); if (!isInteresse && onInteresseClick) onInteresseClick(prop); }}>✓ Interesse</button>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleAfwijzen}>Afwijzen</button>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleTerugbellen}>Terugbellen</button>
+        <button type="button" className={`flex-1 min-w-0 rounded-lg py-2 text-sm font-semibold transition-colors border font-nunito ${outcome === "gebeld_interesse" ? "bg-[#22C55E] text-[#1A1A1A] border-[#22C55E] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-yd-bg"}`} onClick={handleInteresse}>✓ Interesse</button>
       </div>
     </div>
   );
-}
+});
 
 const CONTRACT_INFO = {
   visibility: { label: "Zichtbaarheid", pct: "10%", color: T.greenLight, desc: "Eigenaar beheert zelf" },
@@ -1637,6 +1717,17 @@ export default function App() {
   };
   const [filters, setFilters] = useState(initialFilters);       // toegepast op lijst + server
   const [rawFilters, setRawFilters] = useState(initialFilters); // live UI-waarden
+  /** Zoekveld: lokale draft + debounce naar rawFilters om volledige App-re-renders per toetsaanslag te beperken. */
+  const [zoekDraft, setZoekDraft] = useState(initialFilters.zoek);
+  useEffect(() => {
+    setZoekDraft(filters.zoek);
+  }, [filters]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setRawFilters(f => (f.zoek === zoekDraft ? f : { ...f, zoek: zoekDraft }));
+    }, 280);
+    return () => clearTimeout(t);
+  }, [zoekDraft]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sorteer, setSorteer] = useState("platform"); // platform | naam | slaap | gemeente | …
   const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table" | "map"
@@ -1946,64 +2037,84 @@ export default function App() {
     // Monday push only via manual button - not automatic
   }, [outcomes, mondayActief, mondayCfg, properties, enriched, notes, contactNamen]);
 
-  // Gefilterde + gesorteerde lijst
-  let zichtbaar = properties.filter(p => {
-    // Local-only filters (not sent to server)
-    if (!passesOnlineYearFilter(p, filters)) return false;
-    const outcome = outcomes[p.id];
-    if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
-    if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
-    if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
-    if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
-    return true;
-  });
+  const openInteressePopup = useCallback((p) => { setInteressePopupProp(p); }, []);
 
-  // Helper: merged AI for card (enrichment + platform scan + website-is-Airbnb/Booking)
-  const getCardAi = (id, property = null) => {
-    const en = enriched[id];
-    const scan = platformScan[id];
-    let ai = null;
-    if (en) {
-      ai = {
-        ...en,
-        airbnb: en.airbnb?.gevonden ? en.airbnb : (scan?.airbnb?.gevonden ? scan.airbnb : { gevonden: false }),
-        booking: en.booking?.gevonden ? en.booking : (scan?.booking?.gevonden ? scan.booking : { gevonden: false }),
-      };
-    } else if (scan) {
-      ai = { airbnb: scan.airbnb || { gevonden: false }, booking: scan.booking || { gevonden: false }, directWebsite: scan.website ? { gevonden: scan.website.gevonden, url: scan.website.url } : {} };
+  const visibilityCtxRef = useRef({});
+  visibilityCtxRef.current = { filters, outcomes, hidden, enriched, platformScan };
+
+  const listUiRef = useRef({});
+  listUiRef.current = { filters, rawFilters, page, sorteer, displayMode };
+
+  const enrichmentRef = useRef({});
+  enrichmentRef.current = { enrichingIds, enriched };
+
+  const propertiesRef = useRef(properties);
+  propertiesRef.current = properties;
+  const phoneGroupsRef = useRef(phoneGroups);
+  phoneGroupsRef.current = phoneGroups;
+
+  const openDossierById = useCallback((propId) => {
+    const prop = propertiesRef.current.find(p => p.id === propId);
+    if (!prop) return;
+    const ui = listUiRef.current;
+    setListSnapshot({ filters: { ...ui.filters }, rawFilters: { ...ui.rawFilters }, page: ui.page, sorteer: ui.sorteer, displayMode: ui.displayMode });
+    setSelected(prop);
+    setView("dossier");
+    const { enrichingIds: enSet, enriched: enMap } = enrichmentRef.current;
+    if (!enMap[prop.id] && !enSet.has(prop.id)) {
+      const pg = phoneGroupsRef.current;
+      const portfolio = prop.phoneNorm && pg[prop.phoneNorm]?.length > 1
+        ? { count: pg[prop.phoneNorm].length, names: pg[prop.phoneNorm].map(id => propertiesRef.current.find(p => p.id === id)?.name || id) }
+        : null;
+      setEnrichingIds(s => new Set([...s, prop.id]));
+      enrichProperty(prop, portfolio)
+        .then(result => {
+          setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; });
+          if (result?.waarschuwingAgentuur === true) {
+            setProperties(prev => prev.filter(x => x.id !== prop.id));
+            setSelected(s => (s?.id === prop.id ? null : s));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
     }
-    if (property?.website && typeof property.website === "string") {
-      const w = property.website.toLowerCase();
-      if (w.includes("airbnb.com") && !ai?.airbnb?.gevonden) ai = { ...(ai || {}), airbnb: { gevonden: true, url: property.website } };
-      if (w.includes("booking.com") && !ai?.booking?.gevonden) ai = { ...(ai || {}), booking: { gevonden: true, url: property.website } };
+  }, []);
+
+  const zichtbaar = useMemo(() => {
+    const filtered = [];
+    for (let i = 0; i < properties.length; i++) {
+      const p = properties[i];
+      if (!rowPassesClientFilters(p, filters, outcomes, hidden, enriched, platformScan)) continue;
+      filtered.push(p);
     }
-    return ai;
-  };
-
-  zichtbaar = zichtbaar.filter(p => {
-    const ai = getCardAi(p.id, p);
-    const outcome = outcomes[p.id];
-    if (filters.heeftAi && !enriched[p.id]) return false;
-    if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
-    if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
-    if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
-    return true;
-  });
-
-  const isVisible = (p) => {
-    if (!passesOnlineYearFilter(p, filters)) return false;
-    const outcome = outcomes[p.id];
-    if (!filters.toonVerborgen && hidden.includes(p.id) && outcome !== "afgewezen") return false;
-    if (!filters.toonAfgewezen && outcome === "afgewezen") return false;
-    if (!filters.toonInteresse && (outcome === "gebeld_interesse" || outcome === "interesse")) return false;
-    if (!filters.toonTerugbellen && (outcome === "callback" || outcome === "terugbellen")) return false;
-    const ai = getCardAi(p.id, p);
-    if (filters.heeftAi && !enriched[p.id]) return false;
-    if (filters.belstatus === "terugbellen" && !(outcome === "callback" || outcome === "terugbellen")) return false;
-    if (filters.belstatus === "interesse" && !(outcome === "gebeld_interesse" || outcome === "interesse")) return false;
-    if (filters.belstatus === "afgewezen" && outcome !== "afgewezen") return false;
-    return true;
-  };
+    let platKeyMap = null;
+    if (sorteer === "platform") {
+      platKeyMap = new Map();
+      for (let j = 0; j < filtered.length; j++) {
+        const p = filtered[j];
+        platKeyMap.set(p.id, hasPlatformListingForSort(p, enriched, platformScan));
+      }
+    }
+    return [...filtered].sort((a, b) => {
+      if (sorteer === "platform") {
+        const aPlat = platKeyMap.get(a.id);
+        const bPlat = platKeyMap.get(b.id);
+        if (aPlat && !bPlat) return -1;
+        if (!aPlat && bPlat) return 1;
+        return (a.name || "").localeCompare(b.name || "");
+      }
+      if (sorteer === "naam") return (a.name || "").localeCompare(b.name || "");
+      if (sorteer === "slaap_hoog") return (b.slaapplaatsen || 0) - (a.slaapplaatsen || 0);
+      if (sorteer === "slaap_laag") return (a.slaapplaatsen || 0) - (b.slaapplaatsen || 0);
+      if (sorteer === "nieuwste") {
+        const aDate = a.onlineSince || a.dateOnline || "";
+        const bDate = b.onlineSince || b.dateOnline || "";
+        return bDate.localeCompare(aDate);
+      }
+      if (sorteer === "gemeente") return (a.municipality || "").localeCompare(b.municipality || "");
+      return 0;
+    });
+  }, [properties, filters, outcomes, hidden, enriched, platformScan, sorteer]);
 
   useEffect(() => {
     // Invalidate next-page cache when filters of sortering veranderen
@@ -2015,9 +2126,13 @@ export default function App() {
     if (!totalCount || properties.length >= totalCount) return;
     const myToken = fetchTokenRef.current;
     fillingRef.current = true;
+    const countVisibleRows = (list) => {
+      const ctx = visibilityCtxRef.current;
+      return list.filter(p => rowPassesClientFilters(p, ctx.filters, ctx.outcomes, ctx.hidden, ctx.enriched, ctx.platformScan)).length;
+    };
     try {
       let merged = [...properties];
-      let visibleCount = merged.filter(isVisible).length;
+      let visibleCount = countVisibleRows(merged);
       let nextPage = lastPageLoadedRef.current + 1;
       while (visibleCount < LODGINGS_PAGE_SIZE && merged.length < totalCount) {
         const data = await fetchLodgings(nextPage, LODGINGS_PAGE_SIZE, currentFilters, currentSorteer);
@@ -2027,7 +2142,7 @@ export default function App() {
         merged = filterToBellijstPanden([...merged, ...parsed], enrichedRef.current);
         lastPageLoadedRef.current = nextPage;
         nextPage += 1;
-        visibleCount = merged.filter(isVisible).length;
+        visibleCount = countVisibleRows(merged);
         if (merged.length >= totalCount) break;
       }
       if (myToken !== fetchTokenRef.current) return;
@@ -2042,7 +2157,7 @@ export default function App() {
         fillingRef.current = false;
       }
     }
-  }, [loading, totalCount, properties, isVisible]);
+  }, [loading, totalCount, properties]);
 
   useEffect(() => {
     if (zichtbaar.length < LODGINGS_PAGE_SIZE && zichtbaar.length < totalCount && !loading) {
@@ -2050,25 +2165,29 @@ export default function App() {
     }
   }, [zichtbaar.length, totalCount, loading, fillPage, filters, sorteer]);
 
-  // Sortering (Airbnb/Booking eerst helpt callers)
-  zichtbaar.sort((a, b) => {
-    if (sorteer === "platform") {
-      const aPlat = getCardAi(a.id, a)?.airbnb?.gevonden || getCardAi(a.id, a)?.booking?.gevonden;
-      const bPlat = getCardAi(b.id, b)?.airbnb?.gevonden || getCardAi(b.id, b)?.booking?.gevonden;
-      if (aPlat && !bPlat) return -1;
-      if (!aPlat && bPlat) return 1;
-      return (a.name || "").localeCompare(b.name || "");
-    }
-    if (sorteer === "naam") return (a.name || "").localeCompare(b.name || "");
-    if (sorteer === "slaap_hoog") return (b.slaapplaatsen || 0) - (a.slaapplaatsen || 0);
-    if (sorteer === "slaap_laag") return (a.slaapplaatsen || 0) - (b.slaapplaatsen || 0);
-    if (sorteer === "nieuwste") {
-      const aDate = a.onlineSince || a.dateOnline || "";
-      const bDate = b.onlineSince || b.dateOnline || "";
-      return bDate.localeCompare(aDate); // newest first
-    }
-    if (sorteer === "gemeente") return (a.municipality || "").localeCompare(b.municipality || "");
-    return 0;
+  const cardGridContainerRef = useRef(null);
+  const [cardGridCols, setCardGridCols] = useState(1);
+  useLayoutEffect(() => {
+    if (displayMode !== "cards") return undefined;
+    const el = cardGridContainerRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const w = el.clientWidth || 0;
+      const gap = 16;
+      const minW = 320;
+      setCardGridCols(Math.max(1, Math.floor((w + gap) / (minW + gap))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [displayMode]);
+
+  const cardRowCount = displayMode === "cards" ? Math.ceil(zichtbaar.length / Math.max(1, cardGridCols)) : 0;
+  const cardRowVirtualizer = useWindowVirtualizer({
+    count: cardRowCount,
+    estimateSize: () => 440,
+    overscan: 4,
   });
 
   const uniekeProvincies = [...new Set(properties.map(p => p.province).filter(Boolean))].sort();
@@ -2236,8 +2355,8 @@ export default function App() {
           <input
             className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-input py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red transition-shadow"
             placeholder="Zoeken op naam, gemeente, postcode..."
-            value={rawFilters.zoek}
-            onChange={e => setRawFilters(f => ({ ...f, zoek: e.target.value }))}
+            value={zoekDraft}
+            onChange={e => setZoekDraft(e.target.value)}
           />
           <div className="flex items-center gap-1">
             <button
@@ -2299,7 +2418,7 @@ export default function App() {
           <button
             type="button"
             className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150"
-            onClick={() => applyFilters({ ...rawFilters })}
+            onClick={() => applyFilters({ ...rawFilters, zoek: zoekDraft })}
           >
             Zoeken
           </button>
@@ -2441,7 +2560,7 @@ export default function App() {
               </thead>
               <tbody>
                 {zichtbaar.map((p, i) => {
-                  const ai = getCardAi(p.id, p);
+                  const ai = mergeCardAiForProperty(p.id, p, enriched, platformScan);
                   const fullAi = enriched[p.id];
                   const platformLabels = [];
                   if (ai?.airbnb?.gevonden) platformLabels.push("Airbnb");
@@ -2458,33 +2577,13 @@ export default function App() {
                   <tr
                     key={p.id || i}
                     className="border-b border-yd-border cursor-pointer hover:bg-[#F8FAFC] transition-colors bg-white even:bg-yd-bg/50"
-                    onClick={() => {
-                      setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
-                      setSelected(p);
-                      setView("dossier");
-                      if (!enriched[p.id] && !enrichingIds.has(p.id)) {
-                        const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1
-                          ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) }
-                          : null;
-                        setEnrichingIds(s => new Set([...s, p.id]));
-                        enrichProperty(p, portfolio)
-                          .then(result => {
-                            setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; });
-                            if (result?.waarschuwingAgentuur === true) {
-                              setProperties(prev => prev.filter(x => x.id !== p.id));
-                              setSelected(s => (s?.id === p.id ? null : s));
-                            }
-                          })
-                          .catch(() => {})
-                          .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; }));
-                      }
-                    }}
+                    onClick={() => openDossierById(p.id)}
                   >
                     <td className="py-2 px-3">
                       <button
                         type="button"
                         className="text-left w-full text-[#1A1A1A] font-semibold hover:underline focus:outline-none focus:underline"
-                        onClick={e => { e.stopPropagation(); setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode }); setSelected(p); setView("dossier"); if (!enriched[p.id] && !enrichingIds.has(p.id)) { const portfolio = p.phoneNorm && phoneGroups[p.phoneNorm]?.length > 1 ? { count: phoneGroups[p.phoneNorm].length, names: phoneGroups[p.phoneNorm].map(id => properties.find(x => x.id === id)?.name || id) } : null; setEnrichingIds(s => new Set([...s, p.id])); enrichProperty(p, portfolio).then(result => { setEnriched(prev => { const u = { ...prev, [p.id]: result }; save("enriched", u); return u; }); if (result?.waarschuwingAgentuur === true) { setProperties(prev => prev.filter(x => x.id !== p.id)); setSelected(s => (s?.id === p.id ? null : s)); } }).catch(() => {}).finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(p.id); return n; })); } }}
+                        onClick={e => { e.stopPropagation(); openDossierById(p.id); }}
                       >
                         {p.name || "—"}
                       </button>
@@ -2524,109 +2623,99 @@ export default function App() {
         )}
 
         {displayMode === "map" && (
-          <div className="col-span-full w-full">
-            <PropertyMapView
-              items={zichtbaar}
-              renderPropertyCard={(prop) => {
-                const ai = getCardAi(prop.id, prop);
-                const fullAi = enriched[prop.id];
-                const uitkomst = outcomes[prop.id];
-                const isVerborgen = hidden.includes(prop.id);
-                const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
-                const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
-                return (
-                  <PropertyCard
-                    key={prop.id}
-                    prop={prop}
-                    fullAi={fullAi}
-                    ai={ai}
-                    outcome={uitkomst}
-                    enriching={enrichingIds.has(prop.id)}
-                    isVerborgen={isVerborgen}
-                    heeftPortfolio={heeftPortfolio}
-                    portfolioAantal={portfolioAantal}
-                    uitkomstLabel={uitkomstLabel}
-                    onCardClick={() => {
-                      setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
-                      setSelected(prop);
-                      setView("dossier");
-                      if (!enriched[prop.id] && !enrichingIds.has(prop.id)) {
-                        const portfolio = prop.phoneNorm && phoneGroups[prop.phoneNorm]?.length > 1
-                          ? { count: phoneGroups[prop.phoneNorm].length, names: phoneGroups[prop.phoneNorm].map(id => properties.find(p => p.id === id)?.name || id) }
-                          : null;
-                        setEnrichingIds(s => new Set([...s, prop.id]));
-                        enrichProperty(prop, portfolio)
-                          .then(result => {
-                            setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; });
-                            if (result?.waarschuwingAgentuur === true) {
-                              setProperties(prev => prev.filter(x => x.id !== prop.id));
-                              setSelected(s => (s?.id === prop.id ? null : s));
-                            }
-                          })
-                          .catch(() => {})
-                          .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
-                      }
-                    }}
-                    onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
-                    onOutcome={v => slaUitkomstOp(prop.id, v)}
-                    phoneGroups={phoneGroups}
-                    onInteresseClick={(p) => setInteressePopupProp(p)}
-                    animationStyle={{}}
-                  />
-                );
-              }}
-            />
+          <div className="col-span-full w-full min-h-[320px]">
+            <Suspense fallback={<div className="text-center text-yd-muted py-10 text-sm">Kaart laden…</div>}>
+              <PropertyMapView
+                items={zichtbaar}
+                renderPropertyCard={(prop) => {
+                  const ai = mergeCardAiForProperty(prop.id, prop, enriched, platformScan);
+                  const fullAi = enriched[prop.id];
+                  const uitkomst = outcomes[prop.id];
+                  const isVerborgen = hidden.includes(prop.id);
+                  const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
+                  const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
+                  return (
+                    <PropertyCard
+                      key={prop.id}
+                      prop={prop}
+                      fullAi={fullAi}
+                      ai={ai}
+                      outcome={uitkomst}
+                      enriching={enrichingIds.has(prop.id)}
+                      isVerborgen={isVerborgen}
+                      heeftPortfolio={heeftPortfolio}
+                      portfolioAantal={portfolioAantal}
+                      uitkomstLabel={uitkomstLabel}
+                      openDossierById={openDossierById}
+                      onCardClick={() => {}}
+                      onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
+                      onOutcome={v => slaUitkomstOp(prop.id, v)}
+                      phoneGroups={phoneGroups}
+                      onInteresseClick={openInteressePopup}
+                      animationStyle={EMPTY_ANIM_STYLE}
+                    />
+                  );
+                }}
+              />
+            </Suspense>
           </div>
         )}
 
-        {displayMode === "cards" && zichtbaar.map((prop, idx) => {
-          const ai = getCardAi(prop.id, prop);
-          const fullAi = enriched[prop.id];
-          const uitkomst = outcomes[prop.id];
-          const isVerborgen = hidden.includes(prop.id);
-          const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
-          const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
-          return (
-            <PropertyCard
-              key={prop.id}
-              prop={prop}
-              fullAi={fullAi}
-              ai={ai}
-              outcome={uitkomst}
-              enriching={enrichingIds.has(prop.id)}
-              isVerborgen={isVerborgen}
-              heeftPortfolio={heeftPortfolio}
-              portfolioAantal={portfolioAantal}
-              uitkomstLabel={uitkomstLabel}
-              onCardClick={() => {
-                setListSnapshot({ filters: { ...filters }, rawFilters: { ...rawFilters }, page, sorteer, displayMode });
-                setSelected(prop);
-                setView("dossier");
-                if (!enriched[prop.id] && !enrichingIds.has(prop.id)) {
-                  const portfolio = prop.phoneNorm && phoneGroups[prop.phoneNorm]?.length > 1
-                    ? { count: phoneGroups[prop.phoneNorm].length, names: phoneGroups[prop.phoneNorm].map(id => properties.find(p => p.id === id)?.name || id) }
-                    : null;
-                  setEnrichingIds(s => new Set([...s, prop.id]));
-                  enrichProperty(prop, portfolio)
-                    .then(result => {
-                      setEnriched(prev => { const u = { ...prev, [prop.id]: result }; save("enriched", u); return u; });
-                      if (result?.waarschuwingAgentuur === true) {
-                        setProperties(prev => prev.filter(x => x.id !== prop.id));
-                        setSelected(s => (s?.id === prop.id ? null : s));
-                      }
-                    })
-                    .catch(() => {})
-                    .finally(() => setEnrichingIds(s => { const n = new Set(s); n.delete(prop.id); return n; }));
-                }
-              }}
-              onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
-              onOutcome={v => slaUitkomstOp(prop.id, v)}
-              phoneGroups={phoneGroups}
-              onInteresseClick={(p) => setInteressePopupProp(p)}
-              animationStyle={{ animation: `fadeUp 0.3s ease ${idx * 0.03}s both` }}
-            />
-          );
-        })}
+        {displayMode === "cards" && (
+          <div
+            ref={cardGridContainerRef}
+            className="col-span-full relative w-full"
+            style={{ height: cardRowCount ? cardRowVirtualizer.getTotalSize() : undefined }}
+          >
+            {cardRowVirtualizer.getVirtualItems().map((vRow) => {
+              const start = vRow.index * cardGridCols;
+              const slice = zichtbaar.slice(start, start + cardGridCols);
+              return (
+                <div
+                  key={vRow.key}
+                  className="absolute left-0 right-0 grid gap-4"
+                  style={{
+                    gridTemplateColumns: `repeat(${cardGridCols}, minmax(0, 1fr))`,
+                    transform: `translateY(${vRow.start}px)`,
+                    height: `${vRow.size}px`,
+                    top: 0,
+                  }}
+                >
+                  {slice.map((prop, j) => {
+                    const idx = start + j;
+                    const ai = mergeCardAiForProperty(prop.id, prop, enriched, platformScan);
+                    const fullAi = enriched[prop.id];
+                    const uitkomst = outcomes[prop.id];
+                    const isVerborgen = hidden.includes(prop.id);
+                    const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
+                    const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
+                    return (
+                      <PropertyCard
+                        key={prop.id}
+                        prop={prop}
+                        fullAi={fullAi}
+                        ai={ai}
+                        outcome={uitkomst}
+                        enriching={enrichingIds.has(prop.id)}
+                        isVerborgen={isVerborgen}
+                        heeftPortfolio={heeftPortfolio}
+                        portfolioAantal={portfolioAantal}
+                        uitkomstLabel={uitkomstLabel}
+                        openDossierById={openDossierById}
+                        onCardClick={() => {}}
+                        onAfgewezen={() => verbergPand(prop.id, "afgewezen")}
+                        onOutcome={v => slaUitkomstOp(prop.id, v)}
+                        phoneGroups={phoneGroups}
+                        onInteresseClick={openInteressePopup}
+                        staggerDelaySec={idx * 0.03}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {!loading && !error && zichtbaar.length === 0 && (
           <div className="text-center py-10 px-4 max-w-lg mx-auto flex flex-col gap-4">
@@ -2679,8 +2768,8 @@ export default function App() {
                 <button type="button" className="text-[#888888] hover:text-[#1A1A1A] text-2xl leading-none p-1" onClick={() => setInteressePopupProp(null)} aria-label="Sluiten">&times;</button>
               </div>
               <div className="flex flex-col gap-2">
-                <a href={buildGoogleMeetUrl(interessePopupProp, getCardAi(interessePopupProp.id, interessePopupProp), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Meeting plannen</a>
-                <a href={buildInternalDebriefUrl(interessePopupProp, getCardAi(interessePopupProp.id, interessePopupProp), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Intern debrief</a>
+                <a href={buildGoogleMeetUrl(interessePopupProp, mergeCardAiForProperty(interessePopupProp.id, interessePopupProp, enriched, platformScan), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Meeting plannen</a>
+                <a href={buildInternalDebriefUrl(interessePopupProp, mergeCardAiForProperty(interessePopupProp.id, interessePopupProp, enriched, platformScan), notes[interessePopupProp.id] || "")} target="_blank" rel="noreferrer" className="w-full flex items-center justify-center py-2.5 px-4 rounded-xl bg-white border border-[#EBEBEB] text-[#1A1A1A] text-sm font-bold no-underline hover:bg-[#FAFAFA] transition-colors text-center">Intern debrief</a>
                 {!mondayActief ? (
                   <button type="button" onClick={() => { setInteressePopupProp(null); setView("config"); }} className="w-full py-2.5 px-4 rounded-xl border border-dashed border-[#EBEBEB] text-[#888888] text-sm cursor-pointer hover:bg-[#FAFAFA] transition-colors">Monday koppelen</button>
                 ) : mondayStatus[interessePopupProp.id] === "ok" ? (
