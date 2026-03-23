@@ -53,6 +53,22 @@ const LODGINGS_PAGE_SIZE = 100;
 /** Zelfde waarde als Tailwind `gap-4` — horizontaal in de rij + verticaal tussen virtualizer-rijen. */
 const CARD_GRID_GAP_PX = 16;
 
+/** Voor debounced filter-apply: stabiele keyset (niet afhankelijk van object-identiteit in render). */
+const BELLIJST_FILTER_KEYS = [
+  "zoek", "gemeente", "provincie", "status", "minSlaap", "maxSlaap",
+  "heeftWebsite", "heeftEmail", "heeftAi", "belstatus", "regio", "type",
+  "onlineSindsVanaf", "onlineSindsTot",
+  "toonVerborgen", "toonAfgewezen", "toonInteresse", "toonTerugbellen",
+];
+
+function bellijstFilterSnapshotsEqual(snap, applied) {
+  for (let i = 0; i < BELLIJST_FILTER_KEYS.length; i++) {
+    const k = BELLIJST_FILTER_KEYS[i];
+    if (snap[k] !== applied[k]) return false;
+  }
+  return true;
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1756,21 +1772,20 @@ export default function App() {
     toonInteresse: true,
     toonTerugbellen: true,
   };
+
   const [filters, setFilters] = useState(initialFilters);       // toegepast op lijst + server
   const [rawFilters, setRawFilters] = useState(initialFilters); // live UI-waarden
-  /** Zoekveld: lokale draft + debounce naar rawFilters om volledige App-re-renders per toetsaanslag te beperken. */
+  /** Zoekveld: lokale draft; wordt mee toegepast via debounced apply + knop Zoeken. */
   const [zoekDraft, setZoekDraft] = useState(initialFilters.zoek);
   useEffect(() => {
     setZoekDraft(filters.zoek);
   }, [filters]);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setRawFilters(f => (f.zoek === zoekDraft ? f : { ...f, zoek: zoekDraft }));
-    }, 280);
-    return () => clearTimeout(t);
-  }, [zoekDraft]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [sorteer, setSorteer] = useState("platform"); // platform | naam | slaap | gemeente | …
+  /** Altijd actuele filters voor laadPanden(…) zonder tweede argument (boot) of null currentFilters. */
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   const [displayMode, setDisplayMode] = useState("cards"); // "cards" | "table" | "map"
   const [aiGestart, setAiGestart] = useState(false);
   const [meta, setMeta] = useState({ provinces: [], types: [], regios: [] });
@@ -1810,7 +1825,7 @@ export default function App() {
 
   async function preloadNextPage(basePage, currentFilters = null, currentSorteer = null) {
     const myToken = fetchTokenRef.current;
-    const filtersToUse = currentFilters || filters;
+    const filtersToUse = currentFilters != null ? currentFilters : filtersRef.current;
     const sortToUse = currentSorteer || sorteer;
     const next = basePage + 1;
     try {
@@ -1830,9 +1845,10 @@ export default function App() {
   // Laad panden + start meteen batch verrijking
   const laadPanden = useCallback(async (p = 1, currentFilters = null, token = null) => {
     const myToken = token ?? fetchTokenRef.current;
+    const resolvedFilters = currentFilters != null ? currentFilters : filtersRef.current;
     setLoading(true); setError(null);
     try {
-      const { items, meta } = await fetchPagesWithFill(p, LODGINGS_PAGE_SIZE, currentFilters || {}, sorteer);
+      const { items, meta } = await fetchPagesWithFill(p, LODGINGS_PAGE_SIZE, resolvedFilters, sorteer);
       if (myToken !== fetchTokenRef.current) return;
       const filtered = filterToBellijstPanden(items, enrichedRef.current);
       setProperties(filtered);
@@ -1845,7 +1861,7 @@ export default function App() {
       const pagesUsed = Math.max(1, Math.ceil(items.length / LODGINGS_PAGE_SIZE));
       lastPageLoadedRef.current = p + pagesUsed - 1;
       if (p * LODGINGS_PAGE_SIZE < total) {
-        preloadNextPage(p, currentFilters || filters, sorteer);
+        preloadNextPage(p, resolvedFilters, sorteer);
       } else {
         nextPageCacheRef.current = null;
       }
@@ -1861,7 +1877,10 @@ export default function App() {
         setLoading(false);
       }
     }
-  }, [filters, sorteer, selected]);
+  }, [sorteer, selected]);
+
+  const laadPandenRef = useRef(laadPanden);
+  laadPandenRef.current = laadPanden;
 
   const applyFilters = (nextFiltersInput) => {
     // Snapshot to avoid stale/shared object edge-cases between raw/applied filters.
@@ -1870,7 +1889,7 @@ export default function App() {
     const myToken = fetchTokenRef.current;
     nextPageCacheRef.current = null;
     fillingRef.current = false;
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     setPage(1);
     setProperties([]);
     setRawFilters(nextFilters);
@@ -1878,6 +1897,18 @@ export default function App() {
     laadPanden(1, nextFilters, myToken);
     setAiGestart(false);
   };
+
+  /** Eén server-load nadat zoek/filter-UI stabiel is (geen burst scroll/refetch per tik). */
+  const FILTER_APPLY_DEBOUNCE_MS = 450;
+  useEffect(() => {
+    const snapshot = { ...rawFilters, zoek: zoekDraft };
+    if (bellijstFilterSnapshotsEqual(snapshot, filters)) return undefined;
+    const id = window.setTimeout(() => {
+      applyFilters({ ...rawFilters, zoek: zoekDraft });
+    }, FILTER_APPLY_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+    // applyFilters bewust niet in deps: identiteit wisselt elke render; timeout gebruikt latest raw/zoek van deze run.
+  }, [rawFilters, zoekDraft, filters]);
 
   const resetFiltersToDefault = () => applyFilters({ ...initialFilters });
 
@@ -1968,7 +1999,7 @@ export default function App() {
       return cancelled;
     };
 
-    laadPanden(1);
+    laadPandenRef.current(1, filtersRef.current);
 
     if (USE_SERVER) {
       void (async () => {
@@ -2033,7 +2064,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [laadPanden, loadHealth]);
+  }, [loadHealth]);
 
   // Verberg pand + alle panden met zelfde telefoon/email als afgewezen
   const verbergPand = useCallback((id, reden = "verborgen") => {
@@ -2233,10 +2264,13 @@ export default function App() {
     }
   }, [loading, totalCount, properties]);
 
+  const FILL_PAGE_DEBOUNCE_MS = 150;
   useEffect(() => {
-    if (zichtbaar.length < LODGINGS_PAGE_SIZE && zichtbaar.length < totalCount && !loading) {
+    if (zichtbaar.length >= LODGINGS_PAGE_SIZE || zichtbaar.length >= totalCount || loading) return undefined;
+    const id = window.setTimeout(() => {
       fillPage(filters, sorteer);
-    }
+    }, FILL_PAGE_DEBOUNCE_MS);
+    return () => clearTimeout(id);
   }, [zichtbaar.length, totalCount, loading, fillPage, filters, sorteer]);
 
   const cardGridContainerRef = useRef(null);
@@ -2505,6 +2539,7 @@ export default function App() {
           <button
             type="button"
             className="rounded-btn py-2 px-3 border border-yd-black bg-yd-black text-white text-sm font-semibold hover:bg-[#333] transition-colors duration-150"
+            title="Past filters en zoektekst nu toe (gebeurt ook automatisch na korte pauze)"
             onClick={() => applyFilters({ ...rawFilters, zoek: zoekDraft })}
           >
             Zoeken
