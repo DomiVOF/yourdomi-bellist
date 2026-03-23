@@ -57,7 +57,8 @@ const CARD_GRID_GAP_PX = 12;
 const CARD_LIST_CARD_MAX_WIDTH_PX = 320;
 
 /** Minimale “planning”-breedte per kolom voor aantal kolommen (lager = meer kolommen op ultrabreed). */
-const CARD_GRID_COL_PLANNING_MIN_PX = 280;
+/** Hoger = minder kolommen, bredere kaarten op hetzelfde scherm. */
+const CARD_GRID_COL_PLANNING_MIN_PX = 300;
 
 
 /** Voor debounced filter-apply: stabiele keyset (niet afhankelijk van object-identiteit in render). */
@@ -2438,7 +2439,7 @@ export default function App() {
   if (!user || !getToken()) return <LoginScreen onLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen bg-yd-bg text-yd-black font-nunito max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 box-border overflow-x-hidden">
+    <div className="min-h-screen bg-yd-bg text-yd-black font-nunito w-full min-w-0 box-border overflow-x-hidden px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8">
       <style>{globalCSS}</style>
 
       {/* SERVER ERROR BANNER */}
@@ -2450,7 +2451,7 @@ export default function App() {
 
       {/* HEADER */}
       <header className="bg-white border-b border-yd-border sticky top-0 z-50">
-        <div className="flex flex-wrap justify-between items-center gap-2 py-3 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto">
+        <div className="flex flex-wrap justify-between items-center gap-2 py-3 w-full min-w-0">
           <div className="flex items-baseline gap-0.5">
             <span className="font-nunito font-bold text-xl text-yd-black">YourDomi</span>
             <span className="text-yd-red font-bold text-xl leading-none">.</span>
@@ -2478,7 +2479,7 @@ export default function App() {
 
       {/* FILTER BAR */}
       <div className="bg-white border-b border-yd-border sticky top-[57px] z-40">
-        <div className="flex flex-wrap gap-2 items-center py-2.5 px-4 md:px-8 lg:px-10 min-w-0 w-full max-w-[1920px] mx-auto box-border">
+        <div className="flex flex-wrap gap-2 items-center py-2.5 min-w-0 w-full box-border">
           <input
             className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-input py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red transition-shadow"
             placeholder="Zoeken op naam, gemeente, postcode..."
@@ -2553,7 +2554,7 @@ export default function App() {
         </div>
 
         {filterOpen && (
-          <div className="pt-3 pb-4 px-4 border-t border-yd-border bg-yd-bg">
+          <div className="pt-3 pb-4 border-t border-yd-border bg-yd-bg">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 mb-2">
               <FilterSelect label="Provincie" value={rawFilters.provincie} onChange={v => setRawFilters(f => ({ ...f, provincie: v }))}
                 options={[["", "Alle provincies"], ...(meta.provinces.length ? meta.provinces : uniekeProvincies).map(p => [p, p])]} />
@@ -2662,9 +2663,9 @@ export default function App() {
         </div>
       )}
 
-      {/* PANDENLIJST — same horizontal padding as filter bar */}
-      <div className="pt-5 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto">
-        <div className="grid grid-cols-1 min-[400px]:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 items-stretch">
+      {/* PANDENLIJST — horizontale marge alleen via page-root */}
+      <div className="pt-5 w-full min-w-0">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3 items-stretch">
         {loading && <div className="text-center text-yd-muted py-6 text-sm">Panden ophalen uit Toerisme Vlaanderen...</div>}
 
         {displayMode === "table" && (
@@ -2935,7 +2936,7 @@ export default function App() {
       </div>
 
       {/* PAGINERING */}
-      <div className="flex justify-between items-center py-4 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto border-t border-yd-border mt-1">
+      <div className="flex justify-between items-center py-4 w-full min-w-0 border-t border-yd-border mt-1">
         <button
           type="button"
           className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-yd-bg transition-colors duration-150"
@@ -3009,11 +3010,11 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
   const sectionHeaderClass = "text-xs font-bold tracking-[0.1em] text-[#888888] uppercase mb-3";
   return (
-    <div className="min-h-screen bg-[#FAFAFA] font-nunito text-yd-black max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 relative">
+    <div className="min-h-screen bg-[#FAFAFA] font-nunito text-yd-black w-full min-w-0 relative px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8">
       <style>{globalCSS}</style>
 
       {/* NAV: Terug + pagination */}
-      <div className="bg-white border-b border-[#EBEBEB] py-3 px-4 flex justify-between items-center sticky top-0 z-50">
+      <div className="bg-white border-b border-[#EBEBEB] py-3 flex justify-between items-center sticky top-0 z-50 w-full min-w-0">
         <button type="button" className="bg-transparent border-none text-[#E8231A] cursor-pointer text-sm font-semibold hover:underline font-nunito" onClick={onTerug}>« Terug naar lijst</button>
         <div className="flex items-center gap-1">
           <button type="button" className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#EBEBEB] bg-[#FAFAFA] text-[#1A1A1A] disabled:opacity-50 cursor-pointer hover:bg-[#EBEBEB] transition-colors" onClick={onVorige} disabled={currentIdx <= 1}><ChevronLeft className="w-4 h-4" /></button>
@@ -3260,7 +3261,7 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
       {/* ACTIE BAR */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#EBEBEB] py-4 z-50 safe-area-pb">
-        <div className="max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 flex flex-col gap-3">
+        <div className="w-full min-w-0 flex flex-col gap-3 px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8">
           <div className="flex gap-2 flex-wrap">
             <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onAfgewezen()}>Afwijzen</button>
             <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onOutcome(outcome === "callback" ? null : "callback")}>Terugbellen</button>
@@ -3378,7 +3379,7 @@ function ConfigView({ cfg, onSave, onTerug }) {
   const alKlaar = !!(dealsBoardId && apiKey);
 
   return (
-    <div className="min-h-screen bg-yd-bg font-nunito text-yd-black max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 box-border overflow-x-hidden">
+    <div className="min-h-screen bg-yd-bg font-nunito text-yd-black w-full min-w-0 box-border overflow-x-hidden px-3 sm:px-4 md:px-5 lg:px-6 xl:px-8">
       <div className="bg-white border-b border-yd-border py-3.5 px-5 flex items-center gap-4 sticky top-0 z-50">
         <button type="button" onClick={onTerug} className="bg-transparent border-none text-yd-red cursor-pointer text-sm font-medium hover:underline">« Terug</button>
         <span className="font-bold text-lg text-yd-black">Integraties & Instellingen</span>
