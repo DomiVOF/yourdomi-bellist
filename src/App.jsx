@@ -50,8 +50,15 @@ function postHeaders() { return { "Content-Type": "application/json", "x-auth-to
 /** Panden per API-pagina (`size` query param); ook gebruikt voor fill/paginering in de UI. */
 const LODGINGS_PAGE_SIZE = 100;
 
-/** Zelfde waarde als Tailwind `gap-4` — horizontaal in de rij + verticaal tussen virtualizer-rijen. */
-const CARD_GRID_GAP_PX = 16;
+/** Horizontaal tussen kaarten + verticaal tussen virtualizer-rijen (compact op breed scherm). */
+const CARD_GRID_GAP_PX = 12;
+
+/** Smalle layout: één kolom, kaart max. zo breed + gecentreerd. */
+const CARD_LIST_CARD_MAX_WIDTH_PX = 320;
+
+/** Minimale “planning”-breedte per kolom voor aantal kolommen (lager = meer kolommen op ultrabreed). */
+const CARD_GRID_COL_PLANNING_MIN_PX = 280;
+
 
 /** Voor debounced filter-apply: stabiele keyset (niet afhankelijk van object-identiteit in render). */
 const BELLIJST_FILTER_KEYS = [
@@ -2284,8 +2291,7 @@ export default function App() {
     const measureCols = () => {
       const w = el.clientWidth || 0;
       if (w <= 0) return;
-      const minW = 320;
-      setCardGridCols(Math.max(1, Math.floor((w + CARD_GRID_GAP_PX) / (minW + CARD_GRID_GAP_PX))));
+      setCardGridCols(Math.max(1, Math.floor((w + CARD_GRID_GAP_PX) / (CARD_GRID_COL_PLANNING_MIN_PX + CARD_GRID_GAP_PX))));
     };
     measureCols();
     const ro = new ResizeObserver(measureCols);
@@ -2432,7 +2438,7 @@ export default function App() {
   if (!user || !getToken()) return <LoginScreen onLogin={handleLogin} />;
 
   return (
-    <div className="min-h-screen bg-yd-bg text-yd-black font-nunito max-w-[1400px] mx-auto px-4 md:px-8 box-border overflow-x-hidden">
+    <div className="min-h-screen bg-yd-bg text-yd-black font-nunito max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 box-border overflow-x-hidden">
       <style>{globalCSS}</style>
 
       {/* SERVER ERROR BANNER */}
@@ -2444,7 +2450,7 @@ export default function App() {
 
       {/* HEADER */}
       <header className="bg-white border-b border-yd-border sticky top-0 z-50">
-        <div className="flex flex-wrap justify-between items-center gap-2 py-3 px-4 md:px-8 max-w-[1400px] mx-auto">
+        <div className="flex flex-wrap justify-between items-center gap-2 py-3 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto">
           <div className="flex items-baseline gap-0.5">
             <span className="font-nunito font-bold text-xl text-yd-black">YourDomi</span>
             <span className="text-yd-red font-bold text-xl leading-none">.</span>
@@ -2472,7 +2478,7 @@ export default function App() {
 
       {/* FILTER BAR */}
       <div className="bg-white border-b border-yd-border sticky top-[57px] z-40">
-        <div className="flex flex-wrap gap-2 items-center py-2.5 px-4 md:px-8 min-w-0 w-full max-w-[1400px] mx-auto box-border">
+        <div className="flex flex-wrap gap-2 items-center py-2.5 px-4 md:px-8 lg:px-10 min-w-0 w-full max-w-[1920px] mx-auto box-border">
           <input
             className="flex-1 min-w-0 bg-yd-bg border border-yd-border rounded-input py-2 px-3 text-sm text-yd-black outline-none focus:ring-2 focus:ring-yd-red/30 focus:border-yd-red transition-shadow"
             placeholder="Zoeken op naam, gemeente, postcode..."
@@ -2657,8 +2663,8 @@ export default function App() {
       )}
 
       {/* PANDENLIJST — same horizontal padding as filter bar */}
-      <div className="pt-5 px-4 md:px-8 max-w-[1400px] mx-auto">
-        <div className="grid grid-cols-1 min-[400px]:grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 items-stretch">
+      <div className="pt-5 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto">
+        <div className="grid grid-cols-1 min-[400px]:grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 items-stretch">
         {loading && <div className="text-center text-yd-muted py-6 text-sm">Panden ophalen uit Toerisme Vlaanderen...</div>}
 
         {displayMode === "table" && (
@@ -2815,7 +2821,11 @@ export default function App() {
                     const heeftPortfolio = prop.phoneNorm && (phoneGroups[prop.phoneNorm]?.length || 0) > 1;
                     const portfolioAantal = heeftPortfolio ? phoneGroups[prop.phoneNorm].length : 0;
                     return (
-                      <div key={prop.id} className="min-w-0 min-h-0 h-full flex flex-col">
+                      <div key={prop.id} className="min-w-0 min-h-0 h-full flex justify-center">
+                        <div
+                          className="min-w-0 h-full w-full flex flex-col"
+                          style={cardGridCols === 1 ? { maxWidth: CARD_LIST_CARD_MAX_WIDTH_PX } : undefined}
+                        >
                         <PropertyCard
                           fillRowHeight
                           prop={prop}
@@ -2835,6 +2845,7 @@ export default function App() {
                           onInteresseClick={openInteressePopup}
                           staggerDelaySec={idx * 0.03}
                         />
+                        </div>
                       </div>
                     );
                   })}
@@ -2924,7 +2935,7 @@ export default function App() {
       </div>
 
       {/* PAGINERING */}
-      <div className="flex justify-between items-center py-4 px-4 md:px-8 max-w-[1400px] mx-auto border-t border-yd-border mt-1">
+      <div className="flex justify-between items-center py-4 px-4 md:px-8 lg:px-10 max-w-[1920px] w-full mx-auto border-t border-yd-border mt-1">
         <button
           type="button"
           className="rounded-btn py-2 px-3 border border-yd-black bg-white text-yd-black font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-yd-bg transition-colors duration-150"
@@ -2998,7 +3009,7 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
 
   const sectionHeaderClass = "text-xs font-bold tracking-[0.1em] text-[#888888] uppercase mb-3";
   return (
-    <div className="min-h-screen bg-[#FAFAFA] font-nunito text-yd-black max-w-[1400px] mx-auto px-4 md:px-8 relative">
+    <div className="min-h-screen bg-[#FAFAFA] font-nunito text-yd-black max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 relative">
       <style>{globalCSS}</style>
 
       {/* NAV: Terug + pagination */}
@@ -3248,8 +3259,8 @@ function DossierView({ property, ai, platformScanData, enriching, outcome, note,
       </div>
 
       {/* ACTIE BAR */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#EBEBEB] py-4 px-4 z-50 safe-area-pb">
-        <div className="max-w-[1400px] mx-auto flex flex-col gap-3">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-[#EBEBEB] py-4 z-50 safe-area-pb">
+        <div className="max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 flex flex-col gap-3">
           <div className="flex gap-2 flex-wrap">
             <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "afgewezen" ? "bg-[#E8231A] text-white border-[#E8231A] opacity-50" : "bg-white text-[#666666] border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onAfgewezen()}>Afwijzen</button>
             <button type="button" className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 py-3 px-2 rounded-xl text-sm font-semibold transition-colors border ${outcome === "callback" ? "bg-[#EA580C] text-white border-[#EA580C] opacity-50" : "bg-white text-[#666666] border border-[#EBEBEB] hover:bg-[#FAFAFA]"}`} onClick={() => onOutcome(outcome === "callback" ? null : "callback")}>Terugbellen</button>
@@ -3367,7 +3378,7 @@ function ConfigView({ cfg, onSave, onTerug }) {
   const alKlaar = !!(dealsBoardId && apiKey);
 
   return (
-    <div className="min-h-screen bg-yd-bg font-nunito text-yd-black max-w-[1400px] mx-auto px-4 box-border overflow-x-hidden">
+    <div className="min-h-screen bg-yd-bg font-nunito text-yd-black max-w-[1920px] w-full mx-auto px-4 md:px-8 lg:px-10 box-border overflow-x-hidden">
       <div className="bg-white border-b border-yd-border py-3.5 px-5 flex items-center gap-4 sticky top-0 z-50">
         <button type="button" onClick={onTerug} className="bg-transparent border-none text-yd-red cursor-pointer text-sm font-medium hover:underline">« Terug</button>
         <span className="font-bold text-lg text-yd-black">Integraties & Instellingen</span>
