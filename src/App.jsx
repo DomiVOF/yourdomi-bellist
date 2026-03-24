@@ -182,7 +182,7 @@ async function findDuplicatesAcrossDB(phone, email, currentIds = [], sorteer = "
     const items = rawList.map(item => parseLodging(item));
     items.forEach(p => {
       if (currentIds.includes(p.id)) return;
-      const pPhone = normalizePhoneForMatch(p.phone);
+      const pPhone = phoneMatchKey(p);
       const pEmail = p.email?.toLowerCase().trim();
       if (
         (normalized && pPhone === normalized) ||
@@ -252,7 +252,7 @@ async function saveOutcomeToServer(id, outcome, note, contactNaam) {
       headers: postHeaders(),
       body: JSON.stringify({ outcome, note, contactNaam }),
     });
-  } catch (e) { console.warn("Failed to save outcome to server:", e.message); }
+  } catch (e) { console.warn(`Failed to save outcome to server (${id}):`, e.message); }
 }
 
 // --- DEMO DATA GENERATOR -----------------------------------------------------
@@ -1330,6 +1330,12 @@ function normalizePhoneForMatch(phone) {
   return p;
 }
 
+/** Eén sleutel voor groeperen/match (+32 vs 047…); niet ruwe phoneNorm alleen. */
+function phoneMatchKey(p) {
+  if (!p) return null;
+  return normalizePhoneForMatch(p.phoneNorm || p.phone);
+}
+
 function isLikelyAgency(property, enrichedData = null) {
   if (!property) return false;
   // If AI already flagged it, trust that
@@ -1399,7 +1405,7 @@ function isLikelyAgency(property, enrichedData = null) {
 function buildPhoneGroupsFromItems(items) {
   const groups = {};
   for (const it of items || []) {
-    const key = it.phoneNorm || normalizePhoneForMatch(it.phone);
+    const key = phoneMatchKey(it);
     if (!key) continue;
     if (!groups[key]) groups[key] = [];
     groups[key].push(it.id);
@@ -1415,7 +1421,7 @@ function filterToBellijstPanden(items, enrichedById = {}) {
   if (!items?.length) return [];
   const groups = buildPhoneGroupsFromItems(items);
   return items.filter((p) => {
-    const key = p.phoneNorm || normalizePhoneForMatch(p.phone);
+    const key = phoneMatchKey(p);
     if (!key) return false;
     const en = enrichedById[p.id];
     if (en?.waarschuwingAgentuur === true) return false;
@@ -1945,8 +1951,7 @@ export default function App() {
     // Only enrich properties that (a) are not cached yet and (b) have a phone number
     let toEnrich = items.filter(p => {
       if (cached[p.id]) return false;
-      const hasPhone = !!(p.phoneNorm || normalizePhoneForMatch(p.phone));
-      return hasPhone;
+      return !!phoneMatchKey(p);
     });
     // If priority list given, enrich those first
     if (priorityIds && priorityIds.length > 0) {
@@ -2047,7 +2052,7 @@ export default function App() {
           const serverOutcomes = await loadAllOutcomes();
           if (cancelled) return;
           if (serverOutcomes && typeof serverOutcomes === "object") {
-            const outMap = {};
+            const outMap = { ...load("outcomes", {}) };
             const notesMap = { ...load("notes", {}) };
             const contactMap = { ...load("contactnamen", {}) };
             for (const [id, row] of Object.entries(serverOutcomes)) {
@@ -2078,11 +2083,14 @@ export default function App() {
   const verbergPand = useCallback((id, reden = "verborgen") => {
     const prop = properties.find(p => p.id === id);
     let toHide = [id];
-    if (reden === "afgewezen" && prop?.phoneNorm) {
-      const normKey = prop.phoneNorm || normalizePhoneForMatch(prop.phone);
-      const groep = normKey ? (phoneGroups[normKey] || []) : [];
-      if (groep.length > 1) toHide = groep; // wis alle met zelfde nr
-      const emailNorm = prop?.email?.toLowerCase().trim();
+    if (reden === "afgewezen" && prop) {
+      const normKey = phoneMatchKey(prop);
+      if (normKey) {
+        for (const p of properties) {
+          if (phoneMatchKey(p) === normKey && !toHide.includes(p.id)) toHide.push(p.id);
+        }
+      }
+      const emailNorm = prop.email?.toLowerCase().trim();
       if (emailNorm) {
         properties.forEach(p => {
           if (p.email?.toLowerCase().trim() === emailNorm && !toHide.includes(p.id)) {
@@ -2090,6 +2098,7 @@ export default function App() {
           }
         });
       }
+      toHide = [...new Set(toHide)];
     }
     const newHidden = [...new Set([...hidden, ...toHide])];
     setHidden(newHidden);
@@ -2098,6 +2107,13 @@ export default function App() {
     toHide.forEach(hid => { newOut[hid] = reden; });
     setOutcomes(newOut);
     save("outcomes", newOut);
+    if (USE_SERVER && reden === "afgewezen") {
+      void Promise.allSettled(
+        toHide.map(hid =>
+          saveOutcomeToServer(hid, "afgewezen", notes[hid] || "", contactNamen[hid] || "")
+        )
+      );
+    }
     if (reden === "afgewezen" && toHide.length > 1) {
       console.log(`Automatisch afgewezen voor ${toHide.length - 1} extra pand(en) op basis van telefoon/e-mail.`);
     }
@@ -2134,7 +2150,7 @@ export default function App() {
         }
       })();
     }
-  }, [properties, phoneGroups, hidden, outcomes, sorteer, notes, contactNamen]);
+  }, [properties, hidden, outcomes, sorteer, notes, contactNamen]);
 
 
 
